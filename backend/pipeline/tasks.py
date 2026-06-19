@@ -525,6 +525,80 @@ def compute_narrative_matching():
     return result
 
 
+@celery.task(name="pipeline.tasks.apply_calibration_feedback")
+def apply_calibration_feedback():
+    """
+    Agregira neaplicirani feedback analitičara i dodaje korekcije u SYSTEM_PROMPT varijablu (in-memory).
+    Oznaci feedback kao applied_to_pipeline = True.
+    Pokrece se nedeljno.
+    """
+    logger.info("apply_calibration_feedback: pocinje")
+
+    async def _run():
+        pg = await asyncpg.connect(PG_DSN)
+        try:
+            rows = await pg.fetch(
+                """
+                SELECT analysis_type, is_correct, original_value, corrected_value, comment
+                FROM calibration_feedback
+                WHERE applied_to_pipeline = FALSE
+                ORDER BY created_at DESC
+                LIMIT 500
+                """,
+            )
+            if not rows:
+                logger.info("Nema novih feedbackova za procesiranje")
+                return {"processed": 0}
+
+            # Grupiraj po analysis_type
+            from collections import defaultdict
+            groups = defaultdict(list)
+            for r in rows:
+                groups[r["analysis_type"]].append(dict(r))
+
+            # Generiši summary korekcija
+            corrections = []
+            for atype, items in groups.items():
+                wrong = [i for i in items if not i["is_correct"]]
+                if not wrong:
+                    continue
+                examples = wrong[:5]
+                ex_str = ", ".join(
+                    f"'{e['original_value']}' -> '{e['corrected_value']}'" if e.get("corrected_value") else f"'{e['original_value']}' (netacno)"
+                    for e in examples if e.get("original_value")
+                )
+                if ex_str:
+                    corrections.append(f"{atype}: {len(wrong)} korekcija (primeri: {ex_str})")
+
+            if corrections:
+                correction_note = "\n\nKorekcije analitičara (primeni pri sledecoj analizi):\n" + "\n".join(f"- {c}" for c in corrections)
+                import pipeline.prompts as prompts_module
+                if not hasattr(prompts_module, '_calibration_note'):
+                    prompts_module._calibration_note = ""
+                prompts_module._calibration_note = correction_note
+                original_system = prompts_module.SYSTEM_PROMPT
+                if "\n\nKorekcije analitičara" in original_system:
+                    prompts_module.SYSTEM_PROMPT = original_system.split("\n\nKorekcije analitičara")[0] + correction_note
+                else:
+                    prompts_module.SYSTEM_PROMPT = original_system + correction_note
+                logger.info("Dodate korekcije u SYSTEM_PROMPT: %d tipova", len(corrections))
+
+            # Označi sve kao aplicirane
+            status = await pg.execute(
+                "UPDATE calibration_feedback SET applied_to_pipeline=TRUE WHERE applied_to_pipeline=FALSE"
+            )
+            count = len(rows)
+
+            logger.info("Aplicirano %d feedbackova", count)
+            return {"processed": len(rows), "corrections": len(corrections)}
+        finally:
+            await pg.close()
+
+    result = _run_async(_run())
+    logger.info("apply_calibration_feedback zavrsen: %s", result)
+    return result
+
+
 @celery.task(name="pipeline.tasks.generate_morning_summary", bind=True, max_retries=2)
 def generate_morning_summary(self, target_date: str = None):
     """

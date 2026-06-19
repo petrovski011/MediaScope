@@ -52,4 +52,9 @@ celery.conf.beat_schedule = {
         "task": "pipeline.tasks.detect_alerts",
         "schedule": crontab(hour=8, minute=0),
     },
+    # Kalibracija prompta na osnovu feedback-a analitičara (nedeljno, ponedeljkom u 04:00)
+    "calibration-feedback": {
+        "task": "pipeline.tasks.apply_calibration_feedback",
+        "schedule": crontab(hour=4, minute=0, day_of_week=1),
+    },
 }
