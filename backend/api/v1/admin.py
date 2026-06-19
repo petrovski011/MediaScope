@@ -1,23 +1,32 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func
 from typing import Optional
 
+import redis as redis_lib
 from database import get_db
 from models.users import User
 from models.articles import ScraperRun
 from models.sources import Source
 from models.analysis import CalibrationFeedback
 from api.deps import require_role
+from config import settings
 from passlib.context import CryptContext
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 _require_admin = Depends(require_role("admin"))
+
+REDIS_KEY_PAUSED = "mediascope:pipeline:paused"
+REDIS_KEY_BATCH_ID = "mediascope:pipeline:current_batch_id"
+
+
+def _redis():
+    return redis_lib.from_url(settings.REDIS_URL, decode_responses=True)
 
 
 class CreateUserRequest(BaseModel):
@@ -103,37 +112,68 @@ async def delete_user(
     return {"deleted": True}
 
 
+@router.get("/pipeline/status")
+async def pipeline_status(current_user=_require_admin):
+    r = _redis()
+    paused = bool(r.get(REDIS_KEY_PAUSED))
+    batch_id = r.get(REDIS_KEY_BATCH_ID)
+    return {"paused": paused, "current_batch_id": batch_id}
+
+
+@router.post("/pipeline/pause")
+async def pipeline_pause(current_user=_require_admin):
+    _redis().set(REDIS_KEY_PAUSED, "1")
+    return {"paused": True}
+
+
+@router.post("/pipeline/resume")
+async def pipeline_resume(current_user=_require_admin):
+    _redis().delete(REDIS_KEY_PAUSED)
+    return {"paused": False}
+
+
 @router.get("/scraper/runs")
 async def scraper_runs(
     source_id: Optional[str] = None,
     status: Optional[str] = None,
-    limit: int = 50,
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=200),
     current_user=_require_admin,
     db: AsyncSession = Depends(get_db),
 ):
-    q = select(ScraperRun).order_by(desc(ScraperRun.started_at)).limit(limit)
+    base_q = select(ScraperRun)
     if source_id:
-        q = q.where(ScraperRun.source_id == source_id)
+        base_q = base_q.where(ScraperRun.source_id == source_id)
     if status:
-        q = q.where(ScraperRun.status == status)
+        base_q = base_q.where(ScraperRun.status == status)
 
-    runs = (await db.execute(q)).scalars().all()
+    total = await db.scalar(select(func.count()).select_from(base_q.subquery()))
+
+    runs_q = base_q.order_by(desc(ScraperRun.started_at)).limit(per_page).offset((page - 1) * per_page)
+    runs = (await db.execute(runs_q)).scalars().all()
+
     return {
         "items": [
             {
                 "id": r.id,
                 "source_id": r.source_id,
-                "started_at": r.started_at,
-                "finished_at": r.finished_at,
+                "started_at": r.started_at.isoformat() if r.started_at else None,
+                "finished_at": r.finished_at.isoformat() if r.finished_at else None,
                 "status": r.status,
                 "articles_found": r.articles_found,
                 "articles_new": r.articles_new,
                 "articles_updated": r.articles_updated,
+                "articles_skipped": r.articles_skipped,
                 "duration_ms": r.duration_ms,
                 "error_type": r.error_type,
+                "error_message": r.error_message,
             }
             for r in runs
-        ]
+        ],
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "pages": (total + per_page - 1) // per_page if total else 1,
     }
 
 

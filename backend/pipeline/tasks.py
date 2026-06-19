@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 PG_DSN = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
 REDIS_KEY_BATCH_ID = "mediascope:pipeline:current_batch_id"
 REDIS_KEY_BATCH_DATE = "mediascope:pipeline:current_batch_date"
+REDIS_KEY_PAUSED = "mediascope:pipeline:paused"
 BATCH_SIZE = 3000  # max clanaka po batch-u — pokriva jedan ceo dan (Anthropic limit je 10k)
 
 
@@ -96,6 +97,11 @@ def submit_nightly_batch(self, target_date_str: str = None):
     """
     logger.info("submit_nightly_batch: pocinje")
 
+    r = _redis()
+    if r.get(REDIS_KEY_PAUSED):
+        logger.info("Pipeline je pauziran — preskacemo nightly batch")
+        return {"status": "skipped", "reason": "pipeline_paused"}
+
     if not settings.ANTHROPIC_API_KEY:
         logger.error("ANTHROPIC_API_KEY nije konfigurisan — preskacemo batch")
         return {"status": "skipped", "reason": "no_api_key"}
@@ -143,6 +149,10 @@ def submit_catchup_batches(self):
     Posle svakog batch-a, check_and_process_batch ce preuzeti rezultate.
     """
     logger.info("submit_catchup_batches: pocinje")
+
+    if _redis().get(REDIS_KEY_PAUSED):
+        logger.info("Pipeline je pauziran — preskacemo catch-up batch")
+        return {"status": "skipped", "reason": "pipeline_paused"}
 
     if not settings.ANTHROPIC_API_KEY:
         return {"status": "skipped", "reason": "no_api_key"}

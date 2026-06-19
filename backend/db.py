@@ -157,6 +157,56 @@ def get_total() -> int:
         return 0
 
 
+def start_scraper_run(source_id: str) -> Optional[int]:
+    """Kreira ScraperRun zapis na početku run-a. Vraća run_id."""
+    try:
+        with _connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO scraper_runs (source_id, started_at, status) VALUES (%s, NOW(), 'running') RETURNING id",
+                    (source_id,),
+                )
+                run_id = cur.fetchone()[0]
+                conn.commit()
+                return run_id
+    except psycopg2.Error as e:
+        logger.error("Greška pri kreiranju scraper run za %s: %s", source_id, e)
+        return None
+
+
+def finish_scraper_run(
+    run_id: int,
+    status: str,
+    articles_found: int = 0,
+    articles_new: int = 0,
+    articles_updated: int = 0,
+    articles_skipped: int = 0,
+    error_type: Optional[str] = None,
+    error_message: Optional[str] = None,
+    duration_ms: Optional[int] = None,
+) -> None:
+    """Ažurira ScraperRun zapis na kraju run-a."""
+    if run_id is None:
+        return
+    try:
+        with _connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE scraper_runs SET
+                        finished_at=NOW(), status=%s,
+                        articles_found=%s, articles_new=%s, articles_updated=%s, articles_skipped=%s,
+                        error_type=%s, error_message=%s, duration_ms=%s
+                    WHERE id=%s
+                    """,
+                    (status, articles_found, articles_new, articles_updated, articles_skipped,
+                     error_type, error_message, duration_ms, run_id),
+                )
+                conn.commit()
+    except psycopg2.Error as e:
+        logger.error("Greška pri završavanju scraper run %d: %s", run_id, e)
+
+
 def get_recent(source_id: Optional[str] = None, hours: int = 24, limit: int = 10) -> List[dict]:
     since = datetime.utcnow() - timedelta(hours=hours)
     try:

@@ -144,7 +144,7 @@ def run_test_all() -> None:
 # ── production mode ───────────────────────────────────────────────────────────
 
 def run_source(source_id: str) -> None:
-    """Production run — save articles to DB (DB integration TODO)."""
+    """Production run — save articles to DB."""
     scraper_cls = SCRAPERS.get(source_id)
     if not scraper_cls:
         logger.error("Unknown source: %s", source_id)
@@ -154,16 +154,20 @@ def run_source(source_id: str) -> None:
     scraper = scraper_cls()
     logger.info("[%s] Starting run", source_id)
     start = time.monotonic()
+    run_id = db.start_scraper_run(source_id)
 
     try:
         urls = scraper.get_article_urls()
     except Exception as exc:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
         logger.error("[%s] get_article_urls failed: %s", source_id, exc)
+        db.finish_scraper_run(run_id, status="error", error_type="listing_failed",
+                              error_message=str(exc)[:500], duration_ms=elapsed_ms)
         return
 
     logger.info("[%s] %d URLs found", source_id, len(urls))
 
-    saved = updated = failed = 0
+    saved = updated = failed = skipped = 0
     for url in urls:
         try:
             article = scraper.parse_article(url)
@@ -175,8 +179,8 @@ def run_source(source_id: str) -> None:
                     updated += 1
                 logger.debug("[%s] %s: %s", source_id, "saved" if is_new else "updated", url)
             else:
-                failed += 1
-                logger.warning("[%s] parse_article returned None: %s", source_id, url)
+                skipped += 1
+                logger.debug("[%s] parse_article returned None: %s", source_id, url)
         except ScraperError as exc:
             failed += 1
             logger.error("[%s] ScraperError [%s] for %s: %s", source_id, exc.error_type.value, url, exc)
@@ -185,9 +189,19 @@ def run_source(source_id: str) -> None:
             logger.exception("[%s] Unexpected error for %s: %s", source_id, url, exc)
 
     elapsed = time.monotonic() - start
+    elapsed_ms = int(elapsed * 1000)
+    status = "error" if failed > 0 and saved == 0 and updated == 0 else "success"
+    db.finish_scraper_run(
+        run_id, status=status,
+        articles_found=len(urls),
+        articles_new=saved,
+        articles_updated=updated,
+        articles_skipped=skipped,
+        duration_ms=elapsed_ms,
+    )
     logger.info(
-        "[%s] Done — new=%d updated=%d failed=%d elapsed=%.1fs",
-        source_id, saved, updated, failed, elapsed,
+        "[%s] Done — new=%d updated=%d skipped=%d failed=%d elapsed=%.1fs",
+        source_id, saved, updated, skipped, failed, elapsed,
     )
 
 

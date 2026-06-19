@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { UserPlus, Pencil, Trash2, Check, X, ShieldCheck, Eye } from 'lucide-react'
+import { UserPlus, Pencil, Trash2, Check, X, ShieldCheck, Eye, Play, Pause, ChevronLeft, ChevronRight } from 'lucide-react'
 import api from '../lib/api'
 
-const ROLES = ['admin', 'analyst', 'viewer']
+const ROLES = ['admin', 'researcher', 'viewer']
 
 function Badge({ role }) {
   const colors = {
@@ -160,21 +160,82 @@ function ConfirmModal({ user, onClose, onConfirm }) {
   )
 }
 
+function PipelineControl() {
+  const qc = useQueryClient()
+  const { data } = useQuery({
+    queryKey: ['pipeline-status'],
+    queryFn: () => api.get('/admin/pipeline/status').then(r => r.data),
+    refetchInterval: 15_000,
+  })
+
+  const pauseMutation = useMutation({
+    mutationFn: () => api.post('/admin/pipeline/pause').then(r => r.data),
+    onSuccess: () => qc.invalidateQueries(['pipeline-status']),
+  })
+  const resumeMutation = useMutation({
+    mutationFn: () => api.post('/admin/pipeline/resume').then(r => r.data),
+    onSuccess: () => qc.invalidateQueries(['pipeline-status']),
+  })
+
+  const paused = data?.paused ?? false
+  const batchId = data?.current_batch_id
+
+  return (
+    <div className="rounded-xl border p-4 flex items-center justify-between"
+      style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+      <div>
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full" style={{ background: paused ? '#ef4444' : '#22c55e' }} />
+          <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+            AI Pipeline — {paused ? 'Zaustavljen' : 'Aktivan'}
+          </span>
+        </div>
+        {batchId && !paused && (
+          <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+            Batch u toku: {batchId.slice(0, 16)}…
+          </p>
+        )}
+        {paused && (
+          <p className="text-xs mt-0.5" style={{ color: '#f59e0b' }}>
+            Novi batch-evi neće se pokrenuti dok se pipeline ne nastavi.
+          </p>
+        )}
+      </div>
+      <button
+        onClick={() => paused ? resumeMutation.mutate() : pauseMutation.mutate()}
+        disabled={pauseMutation.isPending || resumeMutation.isPending}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded text-sm border transition-colors hover:bg-white/[0.04] disabled:opacity-50"
+        style={{ borderColor: 'var(--border)', color: paused ? '#22c55e' : '#ef4444' }}>
+        {paused ? <><Play size={13} /> Nastavi</> : <><Pause size={13} /> Zaustavi</>}
+      </button>
+    </div>
+  )
+}
+
 export default function Admin() {
   const qc = useQueryClient()
   const [editUser, setEditUser] = useState(null)
   const [deleteUser, setDeleteUser] = useState(null)
   const [isNewUser, setIsNewUser] = useState(false)
+  const [runsPage, setRunsPage] = useState(1)
+  const [runsSource, setRunsSource] = useState('')
 
   const { data: users = [], isLoading } = useQuery({
     queryKey: ['admin-users'],
     queryFn: () => api.get('/admin/users').then(r => r.data),
   })
 
-  const { data: runs = [] } = useQuery({
-    queryKey: ['admin-scraper-runs'],
-    queryFn: () => api.get('/admin/scraper/runs?limit=20').then(r => r.data.items),
+  const runsParams = new URLSearchParams({ page: runsPage, per_page: 50 })
+  if (runsSource) runsParams.set('source_id', runsSource)
+
+  const { data: runsData } = useQuery({
+    queryKey: ['admin-scraper-runs', runsPage, runsSource],
+    queryFn: () => api.get(`/admin/scraper/runs?${runsParams}`).then(r => r.data),
+    keepPreviousData: true,
   })
+  const runs = runsData?.items || []
+  const runsTotal = runsData?.total || 0
+  const runsPages = runsData?.pages || 1
 
   const createMutation = useMutation({
     mutationFn: (data) => api.post('/admin/users', data),
@@ -209,6 +270,10 @@ export default function Admin() {
           <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>Upravljanje korisnicima i monitoring</p>
         </div>
       </div>
+
+      <section className="mb-8">
+        <PipelineControl />
+      </section>
 
       {/* Korisnici */}
       <section className="mb-8">
@@ -249,41 +314,79 @@ export default function Admin() {
 
       {/* Scraper logovi */}
       <section>
-        <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>Scraper logovi (zadnjih 20)</h2>
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Scraper logovi</h2>
+            {runsTotal > 0 && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{runsTotal} ukupno</span>}
+          </div>
+          <input
+            value={runsSource}
+            onChange={e => { setRunsSource(e.target.value); setRunsPage(1) }}
+            placeholder="Filtriraj po izvoru…"
+            className="px-3 py-1.5 rounded text-xs border outline-none w-40"
+            style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+          />
+        </div>
         <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
-          <table className="w-full text-sm">
-            <thead style={{ background: 'var(--bg-elevated)' }}>
-              <tr>
-                {['Izvor', 'Status', 'Novi', 'Ažurirani', 'Trajanje', 'Pokrenuto'].map(h => (
-                  <th key={h} className={thCls} style={{ color: 'var(--text-muted)' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {runs.length === 0 ? (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>Nema logova</td></tr>
-              ) : runs.map(r => (
-                <tr key={r.id} className="border-b" style={{ borderColor: 'var(--border)' }}>
-                  <td className="px-4 py-2.5 font-mono text-xs" style={{ color: 'var(--text-primary)' }}>{r.source_id}</td>
-                  <td className="px-4 py-2.5">
-                    <span className={`text-xs px-2 py-0.5 rounded ${
-                      r.status === 'success' ? 'bg-green-500/20 text-green-300' :
-                      r.status === 'error'   ? 'bg-red-500/20 text-red-300' :
-                                              'bg-yellow-500/20 text-yellow-300'
-                    }`}>{r.status}</span>
-                  </td>
-                  <td className="px-4 py-2.5 text-sm" style={{ color: 'var(--text-secondary)' }}>{r.articles_new ?? '—'}</td>
-                  <td className="px-4 py-2.5 text-sm" style={{ color: 'var(--text-secondary)' }}>{r.articles_updated ?? '—'}</td>
-                  <td className="px-4 py-2.5 text-xs" style={{ color: 'var(--text-muted)' }}>
-                    {r.duration_ms ? `${(r.duration_ms / 1000).toFixed(1)}s` : '—'}
-                  </td>
-                  <td className="px-4 py-2.5 text-xs" style={{ color: 'var(--text-muted)' }}>
-                    {r.started_at ? new Date(r.started_at).toLocaleString('sr-Latn') : '—'}
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead style={{ background: 'var(--bg-elevated)' }}>
+                <tr>
+                  {['Izvor', 'Status', 'Pronađeno', 'Novi', 'Ažurirani', 'Trajanje', 'Pokrenuto', 'Greška'].map(h => (
+                    <th key={h} className={thCls} style={{ color: 'var(--text-muted)' }}>{h}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {runs.length === 0 ? (
+                  <tr><td colSpan={8} className="px-4 py-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
+                    Nema logova — scraper počinje da upisuje od sledećeg runda.
+                  </td></tr>
+                ) : runs.map(r => (
+                  <tr key={r.id} className="border-b" style={{ borderColor: 'var(--border)' }}>
+                    <td className="px-4 py-2.5 font-mono text-xs" style={{ color: 'var(--text-primary)' }}>{r.source_id}</td>
+                    <td className="px-4 py-2.5">
+                      <span className={`text-xs px-2 py-0.5 rounded ${
+                        r.status === 'success' ? 'bg-green-500/20 text-green-300' :
+                        r.status === 'error'   ? 'bg-red-500/20 text-red-300' :
+                        r.status === 'running' ? 'bg-blue-500/20 text-blue-300' :
+                                                'bg-yellow-500/20 text-yellow-300'
+                      }`}>{r.status}</span>
+                    </td>
+                    <td className="px-4 py-2.5 text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>{r.articles_found ?? '—'}</td>
+                    <td className="px-4 py-2.5 text-xs tabular-nums text-green-400">{r.articles_new ?? '—'}</td>
+                    <td className="px-4 py-2.5 text-xs tabular-nums" style={{ color: 'var(--text-secondary)' }}>{r.articles_updated ?? '—'}</td>
+                    <td className="px-4 py-2.5 text-xs" style={{ color: 'var(--text-muted)' }}>
+                      {r.duration_ms ? `${(r.duration_ms / 1000).toFixed(1)}s` : '—'}
+                    </td>
+                    <td className="px-4 py-2.5 text-xs" style={{ color: 'var(--text-muted)' }}>
+                      {r.started_at ? new Date(r.started_at).toLocaleString('sr-Latn', { hour12: false }) : '—'}
+                    </td>
+                    <td className="px-4 py-2.5 text-xs" style={{ color: '#f87171' }}>
+                      {r.error_type || ''}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {runsPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-2.5 border-t text-xs"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
+              <span>Stranica {runsPage} od {runsPages}</span>
+              <div className="flex gap-1">
+                <button onClick={() => setRunsPage(p => Math.max(1, p - 1))} disabled={runsPage === 1}
+                  className="p-1 rounded disabled:opacity-30 hover:bg-white/[0.04]">
+                  <ChevronLeft size={14} />
+                </button>
+                <button onClick={() => setRunsPage(p => Math.min(runsPages, p + 1))} disabled={runsPage >= runsPages}
+                  className="p-1 rounded disabled:opacity-30 hover:bg-white/[0.04]">
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </section>
 
