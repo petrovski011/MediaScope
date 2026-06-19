@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="sr">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MediaScope - Dashboard</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.26.0/dist/tabler-icons.min.css">
+<link rel="stylesheet" href="shared.css">
+<style>
+.morning-brief{background:#0f1a2e;border:1px solid #1e3a5f;border-radius:8px;padding:14px 16px;margin-bottom:16px}
+.brief-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.brief-title{font-size:12px;font-weight:500;color:#63b3ed;display:flex;align-items:center;gap:6px}
+.brief-time{font-size:10px;color:#4a5568}
+.brief-text{font-size:12px;color:#a0aec0;line-height:1.6}
+.brief-text strong{color:#e2e8f0;font-weight:500}
+.alerts-row{display:flex;gap:8px;margin-bottom:16px}
+.alert-chip{border-radius:6px;padding:8px 12px;display:flex;align-items:center;gap:8px;flex:1;cursor:pointer}
+.alert-chip.danger{background:#2d1515;border:1px solid #742a2a}
+.alert-chip.warning{background:#2d2010;border:1px solid #744210}
+.alert-chip.info{background:#0f1a2e;border:1px solid #1e3a5f}
+.alert-chip i{font-size:16px}
+.alert-chip.danger i{color:#fc8181}
+.alert-chip.warning i{color:#f6ad55}
+.alert-chip.info i{color:#63b3ed}
+.alert-label{font-size:11px;font-weight:500}
+.alert-chip.danger .alert-label{color:#fc8181}
+.alert-chip.warning .alert-label{color:#f6ad55}
+.alert-chip.info .alert-label{color:#63b3ed}
+.alert-desc{font-size:10px;color:#718096;margin-top:1px}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="sidebar">
+    <div class="logo-wrap"><div class="logo-text">MEDIA<span style="color:#63b3ed">SCOPE</span></div><div class="logo-sub">SHARE Fondacija</div></div>
+    <div class="user-wrap"><div class="user-name">Andrej P.</div><div class="user-role">Istrazivac</div></div>
+    <nav class="nav">
+      <a href="01_dashboard.html" class="ni on"><i class="ti ti-layout-dashboard"></i>Dashboard</a>
+      <a href="02_mediji.html" class="ni"><i class="ti ti-news"></i>Mediji</a>
+      <a href="03_teme.html" class="ni"><i class="ti ti-list-details"></i>Teme</a>
+      <a href="04_framing.html" class="ni"><i class="ti ti-frame"></i>Framing</a>
+      <a href="05_narativi.html" class="ni"><i class="ti ti-timeline"></i>Narativi</a>
+      <a href="06_koordinacija.html" class="ni"><i class="ti ti-affiliate"></i>Koordinacija</a>
+      <a href="07_politicka_analiza.html" class="ni"><i class="ti ti-building-bank"></i>Pol. analiza</a>
+      <div class="ndiv"></div>
+      <a href="08_pretraga.html" class="ni"><i class="ti ti-search"></i>Pretraga</a>
+      <a href="09_moj_prostor.html" class="ni"><i class="ti ti-bookmark"></i>Moj prostor</a>
+      <div class="ndiv"></div>
+      <a href="10_admin.html" class="ni"><i class="ti ti-settings"></i>Admin</a>
+    </nav>
+    <div class="sb-bot">Odjavi se</div>
+  </div>
+  <div class="main">
+    <div class="hdr">
+      <div class="srch"><i class="ti ti-search"></i>Pretrazi medije, teme, narative...</div>
+      <div class="fchip on"><i class="ti ti-building-skyscraper"></i>Svi mediji (20)</div>
+      <div class="pbadge"><i class="ti ti-calendar"></i>17. maj - 17. jun 2026.</div>
+      <div class="hdr-r"><div class="hbtn"><i class="ti ti-bell" style="font-size:13px"></i><div class="ndot"></div></div><div class="hbtn"><i class="ti ti-sun"></i>Svetla</div></div>
+    </div>
+    <div class="cnt">
+      <div class="morning-brief">
+        <div class="brief-header">
+          <div class="brief-title"><i class="ti ti-sun" style="font-size:14px"></i>Jutarnji rezime - sreda, 17. jun 2026.</div>
+          <div class="brief-time">generisano u 06:14</div>
+        </div>
+        <div class="brief-text">Dominantna tema proteklog dana bila je <strong>reakcija medija na izvestaj Evropske komisije o Srbiji</strong>. Pro-vladini mediji frejmirali su izvestaj kao "napad na suverenost", dok su nezavisni mediji naglasili nalaze o medijskim slobodama. Detektovana <strong>visoka narativna koordinacija</strong> izmedju Informera, Kurira i Pink-a u vecernjim casovima. Narativ "EU kao kolonijalni projekat" biljezi rast intenziteta treci dan uzastopno.</div>
+      </div>
+      <div class="alerts-row">
+        <div class="alert-chip danger"><i class="ti ti-alert-triangle"></i><div><div class="alert-label">Koordinacija detektovana</div><div class="alert-desc">Informer, Kurir, Pink - narativna koordinacija 94%</div></div></div>
+        <div class="alert-chip warning"><i class="ti ti-trending-up"></i><div><div class="alert-label">Narativ u porastu</div><div class="alert-desc">"EU kao kolonijalni projekat" +340% vs. 7d</div></div></div>
+        <div class="alert-chip info"><i class="ti ti-eye-off"></i><div><div class="alert-label">Silence anomalija</div><div class="alert-desc">N1, Nova, Danas ne izvestavaju o izjavi ministra</div></div></div>
+      </div>
+      <div class="g4">
+        <div class="met"><div class="ml">Clanaka danas</div><div class="mv">1.847</div><div class="ms up">+12% vs juce</div></div>
+        <div class="met"><div class="ml">Aktivnih narativa</div><div class="mv">23</div><div class="ms">3 nova ove nedelje</div></div>
+        <div class="met"><div class="ml">Koordinacija alertovi</div><div class="mv" style="color:#fc8181">4</div><div class="ms dn">+2 vs juce</div></div>
+        <div class="met"><div class="ml">Pracenih medija</div><div class="mv">20</div><div class="ms">svi aktivni</div></div>
+      </div>
+      <div class="g2">
+        <div class="card">
+          <div class="ct">Aktivni narativi <span>po intenzitetu danas</span></div>
+          <div class="nrow"><div class="ndot2" style="background:#fc8181"></div><div class="nn">EU kao kolonijalni projekat</div><div class="nt">sistemski</div><div class="nb"><div class="nf" style="width:92%;background:#fc8181"></div></div><div class="ntr" style="color:#68d391">+34%</div></div>
+          <div class="nrow"><div class="ndot2" style="background:#f6ad55"></div><div class="nn">Protesti kao strani projekat</div><div class="nt">tematski</div><div class="nb"><div class="nf" style="width:71%;background:#f6ad55"></div></div><div class="ntr" style="color:#f6ad55">+5%</div></div>
+          <div class="nrow"><div class="ndot2" style="background:#63b3ed"></div><div class="nn">Srbija kao garant stabilnosti</div><div class="nt">sistemski</div><div class="nb"><div class="nf" style="width:58%;background:#63b3ed"></div></div><div class="ntr" style="color:#718096">0%</div></div>
+          <div class="nrow"><div class="ndot2" style="background:#68d391"></div><div class="nn">Ekonomski rast kao uspeh vlasti</div><div class="nt">tematski</div><div class="nb"><div class="nf" style="width:44%;background:#68d391"></div></div><div class="ntr" style="color:#fc8181">-8%</div></div>
+          <div class="nrow"><div class="ndot2" style="background:#b794f4"></div><div class="nn">Izdajnicki mediji</div><div class="nt">sistemski</div><div class="nb"><div class="nf" style="width:38%;background:#b794f4"></div></div><div class="ntr" style="color:#fc8181">-2%</div></div>
+        </div>
+        <div class="card">
+          <div class="ct">Koordinacija danas <span>po skoru</span></div>
+          <div class="ci"><div class="cs ch">94</div><div class="ci-info"><div class="ci-t">Informer + Kurir + Pink</div><div class="ci-d">Narativ "EU napad na suverenost" - 18-21h</div><span class="ci-ty ty-n">narativna</span></div></div>
+          <div class="ci"><div class="cs ch">87</div><div class="ci-info"><div class="ci-t">Kurir + Alo + Srbija danas</div><div class="ci-d">Identicni naslovi o izjavi ministra Selakovica</div><span class="ci-ty ty-c">copy-paste</span></div></div>
+          <div class="ci"><div class="cs cm">71</div><div class="ci-info"><div class="ci-t">Informer + Prva TV + Pink</div><div class="ci-d">Framing protesta kao huliganstvo - jutarnji ciklus</div><span class="ci-ty ty-f">framing</span></div></div>
+        </div>
+      </div>
+      <div class="g3">
+        <div class="card">
+          <div class="ct">Pro-vlada skor <span>top 5</span></div>
+          <div class="row"><div class="rn">Informer</div><div class="rb"><div class="rf" style="width:95%;background:#fc8181"></div></div><div class="rv" style="color:#fc8181">95</div></div>
+          <div class="row"><div class="rn">Kurir</div><div class="rb"><div class="rf" style="width:82%;background:#f6ad55"></div></div><div class="rv" style="color:#f6ad55">82</div></div>
+          <div class="row"><div class="rn">Pink</div><div class="rb"><div class="rf" style="width:78%;background:#f6ad55"></div></div><div class="rv" style="color:#f6ad55">78</div></div>
+          <div class="row"><div class="rn">Prva TV</div><div class="rb"><div class="rf" style="width:71%;background:#f6ad55"></div></div><div class="rv" style="color:#f6ad55">71</div></div>
+          <div class="row"><div class="rn">RTS</div><div class="rb"><div class="rf" style="width:62%;background:#718096"></div></div><div class="rv" style="color:#718096">62</div></div>
+        </div>
+        <div class="card">
+          <div class="ct">Opozicioni skor <span>top 5</span></div>
+          <div class="row"><div class="rn">BIRN</div><div class="rb"><div class="rf" style="width:88%;background:#68d391"></div></div><div class="rv" style="color:#68d391">88</div></div>
+          <div class="row"><div class="rn">Insajder</div><div class="rb"><div class="rf" style="width:84%;background:#68d391"></div></div><div class="rv" style="color:#68d391">84</div></div>
+          <div class="row"><div class="rn">N1</div><div class="rb"><div class="rf" style="width:76%;background:#68d391"></div></div><div class="rv" style="color:#68d391">76</div></div>
+          <div class="row"><div class="rn">Danas</div><div class="rb"><div class="rf" style="width:72%;background:#68d391"></div></div><div class="rv" style="color:#68d391">72</div></div>
+          <div class="row"><div class="rn">Nova</div><div class="rb"><div class="rf" style="width:68%;background:#68d391"></div></div><div class="rv" style="color:#68d391">68</div></div>
+        </div>
+        <div class="card">
+          <div class="ct">Top teme danas <span>po pokrivenosti</span></div>
+          <div class="row"><div class="rn">Izvestaj EK o Srbiji</div><div class="rb"><div class="rf" style="width:100%;background:#63b3ed"></div></div><div class="rv" style="color:#63b3ed">18/20</div></div>
+          <div class="row"><div class="rn">Protesti</div><div class="rb"><div class="rf" style="width:75%;background:#63b3ed"></div></div><div class="rv" style="color:#63b3ed">15/20</div></div>
+          <div class="row"><div class="rn">Ekonomija</div><div class="rb"><div class="rf" style="width:60%;background:#63b3ed"></div></div><div class="rv" style="color:#63b3ed">12/20</div></div>
+          <div class="row"><div class="rn">Kosovo</div><div class="rb"><div class="rf" style="width:45%;background:#63b3ed"></div></div><div class="rv" style="color:#63b3ed">9/20</div></div>
+          <div class="row"><div class="rn">Lokalna vlast</div><div class="rb"><div class="rf" style="width:30%;background:#63b3ed"></div></div><div class="rv" style="color:#63b3ed">6/20</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

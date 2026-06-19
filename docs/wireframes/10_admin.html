@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="sr">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MediaScope - Admin</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.26.0/dist/tabler-icons.min.css">
+<link rel="stylesheet" href="shared.css">
+
+</head>
+<body>
+<div class="app">
+  <div class="sidebar">
+    <div class="logo-wrap"><div class="logo-text">MEDIA<span style="color:#63b3ed">SCOPE</span></div><div class="logo-sub">SHARE Fondacija</div></div>
+    <div class="user-wrap"><div class="user-name">Andrej P.</div><div class="user-role">Admin</div></div>
+    <nav class="nav">
+      <a href="01_dashboard.html" class="ni"><i class="ti ti-layout-dashboard"></i>Dashboard</a>
+      <a href="02_mediji.html" class="ni"><i class="ti ti-news"></i>Mediji</a>
+      <a href="03_teme.html" class="ni"><i class="ti ti-list-details"></i>Teme</a>
+      <a href="04_framing.html" class="ni"><i class="ti ti-frame"></i>Framing</a>
+      <a href="05_narativi.html" class="ni"><i class="ti ti-timeline"></i>Narativi</a>
+      <a href="06_koordinacija.html" class="ni"><i class="ti ti-affiliate"></i>Koordinacija</a>
+      <a href="07_politicka_analiza.html" class="ni"><i class="ti ti-building-bank"></i>Pol. analiza</a>
+      <div class="ndiv"></div>
+      <a href="08_pretraga.html" class="ni"><i class="ti ti-search"></i>Pretraga</a>
+      <a href="09_moj_prostor.html" class="ni"><i class="ti ti-bookmark"></i>Moj prostor</a>
+      <div class="ndiv"></div>
+      <a href="10_admin.html" class="ni on"><i class="ti ti-settings"></i>Admin</a>
+    </nav>
+    <div class="sb-bot">Odjavi se</div>
+  </div>
+  <div class="main">
+    <div class="hdr">
+      <div class="srch"><i class="ti ti-search"></i>Pretrazi medije, teme, narative...</div>
+      <div class="fchip on"><i class="ti ti-building-skyscraper"></i>Svi mediji (20)</div>
+      <div class="pbadge"><i class="ti ti-calendar"></i>17. maj - 17. jun 2026.</div>
+      <div class="hdr-r"><div class="hbtn"><i class="ti ti-bell" style="font-size:13px"></i><div class="ndot"></div></div><div class="hbtn"><i class="ti ti-sun"></i>Svetla</div></div>
+    </div>
+    <div class="cnt">
+      
+<div class="ph"><div class="pt">Admin</div>
+  <div class="tabs"><div class="tab on">Korisnici</div><div class="tab">Medijski izvori</div><div class="tab">Kalibracija</div></div>
+</div>
+<div class="g2" style="margin-bottom:10px">
+  <div class="card">
+    <div class="ct">Korisnici <span>3 aktivna naloga</span></div>
+    <div class="user-row"><div class="ua">AP</div><div class="ui"><div class="un">Andrej Petrovic</div><div class="ur">andrej@sharefoundation.info</div></div><span class="u-role role-a">Admin</span></div>
+    <div class="user-row"><div class="ua" style="background:#1a2d1a;color:#68d391">MJ</div><div class="ui"><div class="un">Milica Jovanovic</div><div class="ur">milica@sharefoundation.info</div></div><span class="u-role role-i">Istrazivac</span></div>
+    <div class="user-row"><div class="ua" style="background:#2d3748;color:#a0aec0">DN</div><div class="ui"><div class="un">Dragan Nikolic</div><div class="ur">dragan@sharefoundation.info</div></div><span class="u-role role-v">Viewer</span></div>
+    <div style="margin-top:8px;padding:6px 10px;background:#1a2535;border:1px solid #3182ce;border-radius:4px;font-size:10px;color:#63b3ed;cursor:pointer;display:inline-flex;align-items:center;gap:4px"><i class="ti ti-plus" style="font-size:11px"></i>Dodaj korisnika</div>
+  </div>
+  <div class="card">
+    <div class="ct">Medijski izvori <span>20 pracenih portala</span></div>
+    <div class="src-row"><div class="src-dot src-on"></div><div><div class="src-name">N1</div><div class="src-url">n1info.rs</div></div><div class="src-stat">Poslednji scrape: 04:12 - 94 cl.</div></div>
+    <div class="src-row"><div class="src-dot src-on"></div><div><div class="src-name">Informer</div><div class="src-url">informer.rs</div></div><div class="src-stat">Poslednji scrape: 04:14 - 112 cl.</div></div>
+    <div class="src-row"><div class="src-dot src-on"></div><div><div class="src-name">BIRN</div><div class="src-url">birn.rs</div></div><div class="src-stat">Poslednji scrape: 04:18 - 18 cl.</div></div>
+    <div class="src-row"><div class="src-dot src-off"></div><div><div class="src-name">Tanjug</div><div class="src-url">tanjug.rs</div></div><div class="src-stat" style="color:#fc8181">Greska - sajt nedostupan</div></div>
+    <div style="font-size:9px;color:#4a5568;margin-top:6px">...i jos 16 izvora</div>
+  </div>
+</div>
+<div class="card">
+  <div class="ct">Kalibracija - feedback istorija <span>poslednje korekcije</span></div>
+  <div class="kal-row">
+    <div class="kal-icon" style="background:#2d1515"><i class="ti ti-thumb-down" style="font-size:14px;color:#fc8181"></i></div>
+    <div class="kal-info">
+      <div class="kal-t">Framing: "neutralni prikaz" za clanak Informera o EU</div>
+      <div class="kal-d">Milica Jovanovic - 17. jun - 09:44</div>
+      <div class="kal-com">"Ovo nije neutralno, jasno je pro-vladinski framing kroz selekciju citata"</div>
+    </div>
+    <span class="pill pr">korigovano</span>
+  </div>
+  <div class="kal-row">
+    <div class="kal-icon" style="background:#1a4a1a"><i class="ti ti-thumb-up" style="font-size:14px;color:#68d391"></i></div>
+    <div class="kal-info">
+      <div class="kal-t">Narativ: "Srbija kao garant stabilnosti" mapiran tacno</div>
+      <div class="kal-d">Andrej Petrovic - 16. jun - 16:22</div>
+    </div>
+    <span class="pill pg">potvrdjeno</span>
+  </div>
+  <div class="kal-row">
+    <div class="kal-icon" style="background:#2d1515"><i class="ti ti-thumb-down" style="font-size:14px;color:#fc8181"></i></div>
+    <div class="kal-info">
+      <div class="kal-t">Skor poverenja: progresivno/konzervativno za RTS clanak</div>
+      <div class="kal-d">Milica Jovanovic - 16. jun - 11:30</div>
+      <div class="kal-com">"RTS clanak o ekonomiji je neutralan, ne konzervativni"</div>
+    </div>
+    <span class="pill pr">korigovano</span>
+  </div>
+</div>
+
+    </div>
+  </div>
+</div>
+</body>
+</html>

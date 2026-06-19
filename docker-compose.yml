@@ -1,0 +1,123 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    platform: linux/amd64
+    container_name: mediascope_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mediascope
+      POSTGRES_USER: mediascope
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-devpassword}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docs/MediaScope_DataModel_v1.sql:/docker-entrypoint-initdb.d/01_schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mediascope -d mediascope"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: mediascope_redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mediascope_backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://mediascope:${DB_PASSWORD:-devpassword}@postgres:5432/mediascope
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - ./data:/data
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn main:app --host 0.0.0.0 --port 8002
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mediascope_worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://mediascope:${DB_PASSWORD:-devpassword}@postgres:5432/mediascope
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - ./data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: celery -A celery_app worker --loglevel=info -c 2
+
+  beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mediascope_beat
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://mediascope:${DB_PASSWORD:-devpassword}@postgres:5432/mediascope
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - ./data:/data
+    depends_on:
+      - redis
+    command: celery -A celery_app beat --loglevel=info
+
+  scraper:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mediascope_scraper
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://mediascope:${DB_PASSWORD:-devpassword}@postgres:5432/mediascope
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - ./data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: python -m scrapers.scheduler
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ""
+    container_name: mediascope_frontend
+    restart: unless-stopped
+    ports:
+      - "3002:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

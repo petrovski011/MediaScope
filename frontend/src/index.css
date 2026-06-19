@@ -1,0 +1,34 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-base:     #111318;
+  --bg-surface:  #171a20;
+  --bg-elevated: #1e2128;
+  --border:      rgba(255,255,255,0.07);
+  --border-strong: rgba(255,255,255,0.14);
+  --text-primary:   #e2e0d8;
+  --text-secondary: rgba(226,224,216,0.6);
+  --text-muted:     rgba(226,224,216,0.25);
+
+  /* Political osa */
+  --pro-gov:    #ef4444;
+  --neutral:    #6b7280;
+  --opposition: #3b82f6;
+
+  /* Sentiment */
+  --positive: #22c55e;
+  --negative: #ef4444;
+}
+
+body {
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 14px;
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }

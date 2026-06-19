@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Alembic runtime
+celerybeat-schedule.db
+celerybeat-schedule
+
+# Env files
+.env
+.env.local
+.env.*.local
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Logs
+*.log
+/tmp/
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Data / uploads
+data/
+.claude/
