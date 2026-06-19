@@ -91,13 +91,14 @@ def save_article(article: ArticleData) -> bool:
                 text_is_short = (existing_text_len or 0) < 200
 
                 if same_hash and not text_is_short:
-                    # Samo metadata update
+                    # Metadata update — uključi published_at ako je sad dostupan
                     cur.execute(
                         """
-                        UPDATE articles SET author=%s, category=%s, tags=%s, scraped_at=NOW()
+                        UPDATE articles SET author=%s, category=%s, tags=%s, scraped_at=NOW(),
+                            published_at=COALESCE(published_at, %s)
                         WHERE id=%s
                         """,
-                        (article.author, article.category, tags, existing_id),
+                        (article.author, article.category, tags, article.published_at, existing_id),
                     )
                 else:
                     # Pun update
