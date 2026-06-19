@@ -104,6 +104,11 @@ class PinkScraper(BaseScraper):
             og_time = soup.find("meta", property="article:published_time")
             if og_time and og_time.get("content"):
                 published_at = parse_sr_date(og_time["content"])
+        # Pink koristi data-time atribut na span/p.moment-time elementima
+        if not published_at:
+            mt = soup.find(class_="moment-time", attrs={"data-time": True})
+            if mt:
+                published_at = parse_sr_date(mt["data-time"])
 
         updated_at: Optional[datetime] = None
         if schema_data:
