@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import time
 from datetime import datetime
 from typing import Optional
 
@@ -19,10 +20,18 @@ from typing import Optional
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import db  # noqa: E402 — must follow sys.path insertion
 
+import redis as redis_lib
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from .sources import SCRAPERS, STAGGERED_ORDER
+
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
+REDIS_KEY_SCRAPER_PAUSED = "mediascope:scraper:paused"
+
+
+def _redis():
+    return redis_lib.from_url(REDIS_URL, decode_responses=True)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -34,14 +43,19 @@ logger = logging.getLogger("mediascope.scheduler")
 
 def _run_scraper(source_id: str) -> None:
     """Run a single scraper and persist results to DB. Called by APScheduler."""
+    if _redis().get(REDIS_KEY_SCRAPER_PAUSED):
+        logger.info("[%s] Scraper pauziran — preskacemo run", source_id)
+        return
+
     scraper_cls = SCRAPERS.get(source_id)
     if not scraper_cls:
         logger.error("Unknown source_id: %s", source_id)
         return
 
     scraper = scraper_cls()
-    start = datetime.utcnow()
+    start = time.monotonic()
     logger.info("[%s] Run started", source_id)
+    run_id = db.start_scraper_run(source_id)
 
     try:
         urls = scraper.get_article_urls()
@@ -49,6 +63,7 @@ def _run_scraper(source_id: str) -> None:
 
         new_count = 0
         updated = 0
+        skipped = 0
         failed = 0
         for url in urls:
             try:
@@ -60,17 +75,25 @@ def _run_scraper(source_id: str) -> None:
                     else:
                         updated += 1
                 else:
-                    failed += 1
+                    skipped += 1
             except Exception as exc:
                 logger.error("[%s] Error parsing %s: %s", source_id, url, exc)
                 failed += 1
 
-        elapsed = (datetime.utcnow() - start).total_seconds()
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        status = "error" if failed > 0 and new_count == 0 and updated == 0 else "success"
+        db.finish_scraper_run(run_id, status=status,
+                              articles_found=len(urls), articles_new=new_count,
+                              articles_updated=updated, articles_skipped=skipped,
+                              duration_ms=elapsed_ms)
         logger.info(
-            "[%s] Run complete — new=%d updated=%d failed=%d elapsed=%.1fs",
-            source_id, new_count, updated, failed, elapsed,
+            "[%s] Run complete — new=%d updated=%d skipped=%d failed=%d elapsed=%.1fs",
+            source_id, new_count, updated, skipped, failed, elapsed_ms / 1000,
         )
     except Exception as exc:
+        elapsed_ms = int((time.monotonic() - start) * 1000)
+        db.finish_scraper_run(run_id, status="error", error_type="unhandled",
+                              error_message=str(exc)[:500], duration_ms=elapsed_ms)
         logger.exception("[%s] Unhandled exception during run: %s", source_id, exc)
 
 

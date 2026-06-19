@@ -160,25 +160,24 @@ function ConfirmModal({ user, onClose, onConfirm }) {
   )
 }
 
-function PipelineControl() {
+function SystemControl({ label, statusKey, statusUrl, pauseUrl, resumeUrl, description }) {
   const qc = useQueryClient()
   const { data } = useQuery({
-    queryKey: ['pipeline-status'],
-    queryFn: () => api.get('/admin/pipeline/status').then(r => r.data),
+    queryKey: [statusKey],
+    queryFn: () => api.get(statusUrl).then(r => r.data),
     refetchInterval: 15_000,
   })
 
   const pauseMutation = useMutation({
-    mutationFn: () => api.post('/admin/pipeline/pause').then(r => r.data),
-    onSuccess: () => qc.invalidateQueries(['pipeline-status']),
+    mutationFn: () => api.post(pauseUrl).then(r => r.data),
+    onSuccess: () => qc.invalidateQueries([statusKey]),
   })
   const resumeMutation = useMutation({
-    mutationFn: () => api.post('/admin/pipeline/resume').then(r => r.data),
-    onSuccess: () => qc.invalidateQueries(['pipeline-status']),
+    mutationFn: () => api.post(resumeUrl).then(r => r.data),
+    onSuccess: () => qc.invalidateQueries([statusKey]),
   })
 
   const paused = data?.paused ?? false
-  const batchId = data?.current_batch_id
 
   return (
     <div className="rounded-xl border p-4 flex items-center justify-between"
@@ -187,18 +186,11 @@ function PipelineControl() {
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full" style={{ background: paused ? '#ef4444' : '#22c55e' }} />
           <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-            AI Pipeline — {paused ? 'Zaustavljen' : 'Aktivan'}
+            {label} — {paused ? 'Zaustavljen' : 'Aktivan'}
           </span>
         </div>
-        {batchId && !paused && (
-          <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-            Batch u toku: {batchId.slice(0, 16)}…
-          </p>
-        )}
         {paused && (
-          <p className="text-xs mt-0.5" style={{ color: '#f59e0b' }}>
-            Novi batch-evi neće se pokrenuti dok se pipeline ne nastavi.
-          </p>
+          <p className="text-xs mt-0.5" style={{ color: '#f59e0b' }}>{description}</p>
         )}
       </div>
       <button
@@ -211,6 +203,7 @@ function PipelineControl() {
     </div>
   )
 }
+
 
 export default function Admin() {
   const qc = useQueryClient()
@@ -271,8 +264,23 @@ export default function Admin() {
         </div>
       </div>
 
-      <section className="mb-8">
-        <PipelineControl />
+      <section className="mb-8 space-y-3">
+        <SystemControl
+          label="AI Pipeline"
+          statusKey="pipeline-status"
+          statusUrl="/admin/pipeline/status"
+          pauseUrl="/admin/pipeline/pause"
+          resumeUrl="/admin/pipeline/resume"
+          description="Novi batch-evi nece se pokrenuti dok se pipeline ne nastavi."
+        />
+        <SystemControl
+          label="Scraper"
+          statusKey="scraper-status"
+          statusUrl="/admin/scraper/status"
+          pauseUrl="/admin/scraper/pause"
+          resumeUrl="/admin/scraper/resume"
+          description="Zakazani scraper rundovi nece se pokrenuti dok se scraper ne nastavi."
+        />
       </section>
 
       {/* Korisnici */}

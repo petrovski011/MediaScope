@@ -23,6 +23,7 @@ _require_admin = Depends(require_role("admin"))
 
 REDIS_KEY_PAUSED = "mediascope:pipeline:paused"
 REDIS_KEY_BATCH_ID = "mediascope:pipeline:current_batch_id"
+REDIS_KEY_SCRAPER_PAUSED = "mediascope:scraper:paused"
 
 
 def _redis():
@@ -129,6 +130,24 @@ async def pipeline_pause(current_user=_require_admin):
 @router.post("/pipeline/resume")
 async def pipeline_resume(current_user=_require_admin):
     _redis().delete(REDIS_KEY_PAUSED)
+    return {"paused": False}
+
+
+@router.get("/scraper/status")
+async def scraper_status(current_user=_require_admin):
+    paused = bool(_redis().get(REDIS_KEY_SCRAPER_PAUSED))
+    return {"paused": paused}
+
+
+@router.post("/scraper/pause")
+async def scraper_pause(current_user=_require_admin):
+    _redis().set(REDIS_KEY_SCRAPER_PAUSED, "1")
+    return {"paused": True}
+
+
+@router.post("/scraper/resume")
+async def scraper_resume(current_user=_require_admin):
+    _redis().delete(REDIS_KEY_SCRAPER_PAUSED)
     return {"paused": False}
 
 
