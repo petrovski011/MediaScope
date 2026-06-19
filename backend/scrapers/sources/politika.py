@@ -22,8 +22,8 @@ BASE_URL = "https://www.politika.rs"
 
 # Article URL: /scc/clanak/BROJ/SLUG — matches both relative and absolute hrefs
 _ARTICLE_RE = re.compile(r"(?:politika\.rs)?/scc/clanak/\d+")
-# Matches "Četvrtak, 18.06.2026. u 08:40" in the article header byline element
-_POL_DATE_RE = re.compile(r"\d{1,2}\.\d{1,2}\.\d{4}\.\s+u\s+\d{2}:\d{2}")
+# Matches "Četvrtak, 18.06.2026. u 08:40" (lat) ili "Петак, 19.06.2026. у 11:53" (cir)
+_POL_DATE_RE = re.compile(r"\d{1,2}\.\d{1,2}\.\d{4}\.\s+[uу]\s+\d{2}:\d{2}")
 
 
 class PolitikaScraper(BaseScraper):
@@ -133,6 +133,20 @@ class PolitikaScraper(BaseScraper):
             og_time = soup.find("meta", property="article:published_time")
             if og_time and og_time.get("content"):
                 published_at = parse_sr_date(og_time["content"])
+        # magazin.politika.rs i zurnal.politika.rs koriste itemprop="datePublished"
+        # sa ćiriličnim tekstom u formatu "Петак, 19.06.2026. у 11:53"
+        if not published_at:
+            dp_el = soup.find(attrs={"itemprop": "datePublished"})
+            if dp_el:
+                raw = dp_el.get("content") or dp_el.get_text(strip=True)
+                m = _POL_DATE_RE.search(raw)
+                if m:
+                    dt_iso = re.sub(
+                        r"(\d{2})\.(\d{2})\.(\d{4})\.\s+[uу]\s+(\d{2}:\d{2})",
+                        r"\3-\2-\1T\4",
+                        m.group(0),
+                    )
+                    published_at = parse_sr_date(dt_iso)
 
         updated_at: Optional[datetime] = None
         if schema_data:
