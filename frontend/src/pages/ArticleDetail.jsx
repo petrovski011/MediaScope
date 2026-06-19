@@ -153,7 +153,7 @@ export default function ArticleDetail() {
                         <div className="flex items-center gap-2">
                           <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{e.name}</span>
                           {e.is_quoted && <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(59,130,246,0.15)', color: '#60a5fa' }}>citiran</span>}
-                          {e.is_main_subject && <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(245,158,11,0.15)', color: '#fbbf24' }}>subjekt</span>}
+                          {e.is_subject && <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'rgba(245,158,11,0.15)', color: '#fbbf24' }}>subjekt</span>}
                         </div>
                         <div className="flex items-center gap-2 mt-0.5">
                           <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{e.entity_type}</span>
@@ -202,13 +202,32 @@ export default function ArticleDetail() {
                       </span>
                     </div>
                   )}
+                  {analysis.topic_explanation && (
+                    <details className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                      <summary className="cursor-pointer hover:text-white transition-colors">Obrazloženje teme</summary>
+                      <p className="mt-1 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{analysis.topic_explanation}</p>
+                    </details>
+                  )}
                 </div>
               </div>
 
               <div className="rounded-xl p-4 border space-y-3" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
                 <h2 className="text-xs font-medium uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Skorovi</h2>
                 <ScoreGauge value={analysis.political_score} label="Politički (-1 opoz. / +1 pro-vlada)" />
+                {analysis.political_explanation && (
+                  <details className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                    <summary className="cursor-pointer hover:text-white transition-colors">Obrazloženje</summary>
+                    <p className="mt-1 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{analysis.political_explanation}</p>
+                  </details>
+                )}
                 <ScoreGauge value={analysis.value_score} label="Vrednosni (-1 progres. / +1 konzervat.)" />
+                {analysis.value_explanation && (
+                  <details className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                    <summary className="cursor-pointer hover:text-white transition-colors">Obrazloženje</summary>
+                    <p className="mt-1 leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{analysis.value_explanation}</p>
+                  </details>
+                )}
+                <ScoreGauge value={analysis.sentiment_score} label="Sentiment score (-1 neg. / +1 poz.)" />
                 <ScoreGauge value={analysis.sensationalism} label="Senzacionalizam" min={0} max={1} />
               </div>
 

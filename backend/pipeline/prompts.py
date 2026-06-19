@@ -76,6 +76,9 @@ Proceni na tri ose:
 
 Uzmi u obzir: izbor reci, citiranje izvora, selekciju cinjenica, naslove i emotivni naboj.
 
+Za svaki skor dodaj kratko obrazlozenje (1-2 recenice na srpskom latinici, konkretni signali iz teksta,
+ne ponavljaj skor kao broj — objasni ZASTO).
+
 Vrati ISKLJUCIVO ovaj JSON (bez ikakvih objasnjenja van JSON-a):
 {{
   "entities": [
@@ -89,12 +92,15 @@ Vrati ISKLJUCIVO ovaj JSON (bez ikakvih objasnjenja van JSON-a):
   ],
   "primary_topic": "EU_INTEGRACIJE",
   "primary_topic_confidence": 0.91,
+  "topic_explanation": "Clanak izvestava o pregovorima o pristupanju EU i uslovljenosti visa liberalizacijom.",
   "secondary_topics": [
     {{"topic": "POLITIKA", "confidence": 0.67}},
     {{"topic": "MEDIJI_SLOBODA", "confidence": 0.54}}
   ],
   "political_score": 0.72,
+  "political_explanation": "Clanak prenosi zvanicne izjave predsednika bez kritickog konteksta i koristi formulacije 'Srbija pobeduje' i 'pritisci Zapada'.",
   "value_score": 0.45,
+  "value_explanation": "Naglasava tradicionalne vrednosti i suverenost kao kontraargument evropskim normama.",
   "sensationalism": 0.61,
   "sentiment": "negative",
   "sentiment_score": -0.55,
