@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Newspaper, Radio, TrendingUp, LogOut, Activity } from 'lucide-react'
+import { LayoutDashboard, Newspaper, Radio, TrendingUp, LogOut, Activity, Settings } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '../store/auth'
 import GlobalFilters from './GlobalFilters'
@@ -71,6 +71,15 @@ export default function Layout() {
               <Icon size={15} />{label}
             </NavLink>
           ))}
+          {user?.role === 'admin' && (
+            <NavLink to="/admin"
+              className={({ isActive }) =>
+                `flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors ${
+                  isActive ? 'bg-white/10 text-white' : 'text-[var(--text-secondary)] hover:text-white hover:bg-white/5'
+                }`}>
+              <Settings size={15} />Admin
+            </NavLink>
+          )}
         </nav>
 
         <PipelineStatus />

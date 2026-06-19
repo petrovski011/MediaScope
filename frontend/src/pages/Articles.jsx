@@ -8,13 +8,13 @@ import api from '../lib/api'
 
 const TOPICS = [
   'POLITIKA','EU_INTEGRACIJE','KOSOVO','EKONOMIJA','INFRASTRUKTURA',
-  'BEZBEDNOST','MEDIJI_SLOBODA','PROTEST','KULTURA_SPORT','HRONIKA',
+  'BEZBEDNOST','MEDIJI_SLOBODA','PROTEST','KULTURA','SPORT','HRONIKA',
   'ZDRAVLJE','OBRAZOVANJE','SPOLJNA_POLITIKA','LOKALNA_VLAST','DRUSTVO',
 ]
 const TOPIC_LABELS = {
   POLITIKA:'Politika', EU_INTEGRACIJE:'EU integracije', KOSOVO:'Kosovo',
   EKONOMIJA:'Ekonomija', INFRASTRUKTURA:'Infrastruktura', BEZBEDNOST:'Bezbednost',
-  MEDIJI_SLOBODA:'Mediji i sloboda', PROTEST:'Protest', KULTURA_SPORT:'Kultura/Sport',
+  MEDIJI_SLOBODA:'Mediji i sloboda', PROTEST:'Protest', KULTURA:'Kultura', SPORT:'Sport',
   HRONIKA:'Hronika', ZDRAVLJE:'Zdravlje', OBRAZOVANJE:'Obrazovanje',
   SPOLJNA_POLITIKA:'Spoljna politika', LOKALNA_VLAST:'Lokalna vlast', DRUSTVO:'Društvo',
 }

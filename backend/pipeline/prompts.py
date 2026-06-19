@@ -52,7 +52,7 @@ Ne ukljucuj genericne pojmove ("vlada", "novinari") - samo konkretne aktere.
 ## 2. Tematska klasifikacija
 Odredi primarnu temu (jednu) i sekundarne (max 3) sa confidence scorovima.
 Koristi ove teme: POLITIKA, EU_INTEGRACIJE, KOSOVO, EKONOMIJA, INFRASTRUKTURA,
-BEZBEDNOST, MEDIJI_SLOBODA, PROTEST, KULTURA_SPORT, HRONIKA,
+BEZBEDNOST, MEDIJI_SLOBODA, PROTEST, KULTURA, SPORT, HRONIKA,
 ZDRAVLJE, OBRAZOVANJE, SPOLJNA_POLITIKA, LOKALNA_VLAST, DRUSTVO
 
 Ako ne odgovara nijednoj, predlozi novu kao "NOVA_TEMA: NAZIV".

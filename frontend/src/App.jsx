@@ -10,6 +10,7 @@ import ArticleDetail from './pages/ArticleDetail'
 import Sources from './pages/Sources'
 import SourceDetail from './pages/SourceDetail'
 import Narratives from './pages/Narratives'
+import Admin from './pages/Admin'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } }
@@ -19,6 +20,14 @@ function AuthGuard({ children }) {
   const { token, user, fetchMe } = useAuth()
   useEffect(() => { if (token && !user) fetchMe() }, [token])
   if (!token) return <Navigate to="/login" replace />
+  return children
+}
+
+function AdminGuard({ children }) {
+  const { token, user, fetchMe } = useAuth()
+  useEffect(() => { if (token && !user) fetchMe() }, [token])
+  if (!token) return <Navigate to="/login" replace />
+  if (user && user.role !== 'admin') return <Navigate to="/" replace />
   return children
 }
 
@@ -35,6 +44,7 @@ export default function App() {
             <Route path="sources" element={<Sources />} />
             <Route path="sources/:id" element={<SourceDetail />} />
             <Route path="narratives" element={<Narratives />} />
+            <Route path="admin" element={<AdminGuard><Admin /></AdminGuard>} />
           </Route>
         </Routes>
       </BrowserRouter>
