@@ -52,12 +52,34 @@ class TelegrafScraper(BaseScraper):
         except ScraperError as exc:
             self.logger.warning("Listing fetch failed: %s", exc)
 
-        # Filter to article URLs: /KATEGORIJA/SLUG pattern
-        article_urls = [
-            u for u in urls
-            if re.search(r"telegraf\.rs/[a-z-]+/[a-z0-9-]", u)
-            and not any(skip in u for skip in ["/tag/", "/autor/", "/video/", "telegraf.rs/#"])
-        ]
+        SKIP_SEGMENTS = {
+            "tag", "autor", "video", "teme", "page", "pretraga",
+            "o-nama", "marketing", "impressum", "uslovi-koriscenja",
+            "politika-privatnosti", "kontakt", "rss", "newsletter",
+            "sitemap", "404",
+        }
+        SKIP_SUBSTRINGS = ["telegraf.rs/#", "telegraf.rs/?", "/feed"]
+
+        article_urls = []
+        for u in urls:
+            try:
+                path = u.split("telegraf.rs", 1)[1].strip("/")
+            except IndexError:
+                continue
+            segments = [s for s in path.split("/") if s]
+            # Mora imati bar 2 segmenta (kategorija + slug) i slug mora biti dugačak
+            if len(segments) < 2:
+                continue
+            if segments[0] in SKIP_SEGMENTS:
+                continue
+            if any(s in u for s in SKIP_SUBSTRINGS):
+                continue
+            # Slug (zadnji segment) mora imati bar jedan broj ili biti dugačak
+            slug = segments[-1]
+            if len(slug) < 5:
+                continue
+            article_urls.append(u)
+
         result = unique_urls(article_urls)
         self.logger.info("Total unique article URLs: %d", len(result))
         return result
@@ -92,6 +114,11 @@ class TelegrafScraper(BaseScraper):
         main = soup.find("main")
         text_raw = str(main) if main else ""
         text = clean_text(main) if main else ""
+
+        # Odbaci statičke stranice i listinge — nemaju datum ni dovoljno teksta
+        if len(text) < 150 and not (schema_data and schema_data.get("datePublished")):
+            self.logger.debug("Skipping non-article (no date, short text): %s", url)
+            return None
 
         # Author — prefer schema.org
         author: Optional[str] = None
