@@ -42,4 +42,9 @@ celery.conf.beat_schedule = {
         "task": "pipeline.tasks.generate_morning_summary",
         "schedule": crontab(hour=7, minute=0),
     },
+    # Narativno poklapanje jednom dnevno u 06:00
+    "narrative-matching": {
+        "task": "pipeline.tasks.compute_narrative_matching",
+        "schedule": crontab(hour=6, minute=0),
+    },
 }

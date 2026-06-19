@@ -274,6 +274,112 @@ def run_batch_for_articles(article_ids: list[int]):
     return {"status": "done", "metrics": metrics, "article_ids": article_ids}
 
 
+@celery.task(name="pipeline.tasks.compute_narrative_matching")
+def compute_narrative_matching():
+    """
+    Za svaki aktivan narrativ, pretrazuje clanke po kljucnim recima (iz naziva + opisa).
+    Upisuje article_narratives veze i azurira narrative_daily_intensity.
+    Pokretati jednom dnevno (npr. 06:00).
+    """
+    logger.info("compute_narrative_matching: pocinje")
+
+    async def _run():
+        pg = await asyncpg.connect(PG_DSN)
+        try:
+            narratives = await pg.fetch(
+                "SELECT id, name, description FROM narratives WHERE is_active = TRUE ORDER BY id"
+            )
+            if not narratives:
+                logger.info("Nema aktivnih narativa")
+                return {"narratives_processed": 0}
+
+            total_linked = 0
+            for narrative in narratives:
+                nid = narrative["id"]
+                # Kljucne reci iz naziva i opisa (reci >= 4 karaktera)
+                raw_terms = (narrative["name"] or "") + " " + (narrative["description"] or "")
+                keywords = [w.strip(".,!?():") for w in raw_terms.split() if len(w.strip(".,!?():")) >= 4]
+                if not keywords:
+                    continue
+
+                # ILIKE za svaku kljucnu rec (kombinacija OR)
+                conditions = " OR ".join(
+                    f"(LOWER(a.title) LIKE '%{kw.lower()}%' OR LOWER(a.text_content) LIKE '%{kw.lower()}%')"
+                    for kw in keywords[:8]
+                )
+                articles = await pg.fetch(
+                    f"""
+                    SELECT a.id, a.source_id, a.published_at, a.title,
+                        (
+                            SELECT COUNT(*) FROM (
+                                SELECT 1 FROM unnest($1::text[]) kw
+                                WHERE LOWER(a.title || ' ' || COALESCE(a.text_content,'')) LIKE '%' || LOWER(kw) || '%'
+                            ) m
+                        )::float / $2 AS match_ratio
+                    FROM articles a
+                    WHERE ({conditions})
+                      AND a.published_at >= NOW() - INTERVAL '90 days'
+                    ORDER BY a.published_at DESC
+                    LIMIT 500
+                    """,
+                    keywords[:8], float(len(keywords[:8])),
+                )
+
+                linked = 0
+                for art in articles:
+                    confidence = min(1.0, float(art["match_ratio"] or 0) * 1.2)
+                    if confidence < 0.25:
+                        continue
+                    snippet = art["title"][:300] if art["title"] else None
+                    await pg.execute(
+                        """
+                        INSERT INTO article_narratives (article_id, narrative_id, confidence, supporting_text)
+                        VALUES ($1, $2, $3, $4)
+                        ON CONFLICT (article_id, narrative_id) DO UPDATE SET
+                            confidence = EXCLUDED.confidence,
+                            supporting_text = EXCLUDED.supporting_text
+                        """,
+                        art["id"], nid, confidence, snippet,
+                    )
+                    linked += 1
+
+                logger.info("Narrativ %d: %d clanaka linkovanoo", nid, linked)
+                total_linked += linked
+
+                # Azuriraj NarrativeDailyIntensity
+                await pg.execute(
+                    """
+                    INSERT INTO narrative_daily_intensity
+                        (narrative_id, source_id, date, article_count, avg_confidence, intensity_score)
+                    SELECT
+                        $1 AS narrative_id,
+                        a.source_id,
+                        DATE(a.published_at) AS date,
+                        COUNT(*) AS article_count,
+                        AVG(an.confidence) AS avg_confidence,
+                        COUNT(*)::float * AVG(an.confidence) AS intensity_score
+                    FROM article_narratives an
+                    JOIN articles a ON a.id = an.article_id
+                    WHERE an.narrative_id = $1
+                      AND a.published_at >= NOW() - INTERVAL '90 days'
+                    GROUP BY a.source_id, DATE(a.published_at)
+                    ON CONFLICT (narrative_id, source_id, date) DO UPDATE SET
+                        article_count = EXCLUDED.article_count,
+                        avg_confidence = EXCLUDED.avg_confidence,
+                        intensity_score = EXCLUDED.intensity_score
+                    """,
+                    nid,
+                )
+
+            return {"narratives_processed": len(narratives), "total_linked": total_linked}
+        finally:
+            await pg.close()
+
+    result = _run_async(_run())
+    logger.info("compute_narrative_matching zavrsen: %s", result)
+    return result
+
+
 @celery.task(name="pipeline.tasks.generate_morning_summary", bind=True, max_retries=2)
 def generate_morning_summary(self, target_date: str = None):
     """

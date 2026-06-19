@@ -1,9 +1,10 @@
 import { useState, useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
-import { User, Building2, MapPin, MessageSquare, Copy, AlertTriangle } from 'lucide-react'
+import { User, Building2, MapPin, MessageSquare, Copy, AlertTriangle, Plus, X, BookOpen } from 'lucide-react'
 import { useFilters, toParams } from '../store/filters'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../store/auth'
 import api from '../lib/api'
 
 const TOPIC_LABELS = {
@@ -395,6 +396,134 @@ function CoordinationPanel({ filterParams }) {
   )
 }
 
+const NARRATIVE_TYPE_LABELS = {
+  systemic: 'Sistemski', thematic: 'Tematski', pro_vlada: 'Pro-vladini', opozicioni: 'Opozicioni',
+}
+
+function NarrativesPanel() {
+  const { user } = useAuth()
+  const canEdit = user?.role === 'admin' || user?.role === 'researcher'
+  const qc = useQueryClient()
+  const [showCreate, setShowCreate] = useState(false)
+  const [form, setForm] = useState({ name: '', narrative_type: 'thematic', description: '' })
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['narratives'],
+    queryFn: () => api.get('/narratives').then(r => r.data),
+  })
+
+  const createMutation = useMutation({
+    mutationFn: body => api.post('/narratives', body).then(r => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries(['narratives'])
+      setShowCreate(false)
+      setForm({ name: '', narrative_type: 'thematic', description: '' })
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: id => api.delete(`/narratives/${id}`).then(r => r.data),
+    onSuccess: () => qc.invalidateQueries(['narratives']),
+  })
+
+  const narratives = data?.narratives || []
+
+  return (
+    <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+      <div className="px-4 py-3 border-b flex items-center justify-between" style={{ borderColor: 'var(--border)' }}>
+        <div className="flex items-center gap-2">
+          <BookOpen size={13} style={{ color: 'var(--text-muted)' }} />
+          <h2 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Definisani narativi</h2>
+          {narratives.length > 0 && (
+            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}>
+              {narratives.length}
+            </span>
+          )}
+        </div>
+        {canEdit && (
+          <button onClick={() => setShowCreate(true)}
+            className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded border transition-colors hover:bg-white/[0.04]"
+            style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
+            <Plus size={12} /> Dodaj narrativ
+          </button>
+        )}
+      </div>
+
+      {showCreate && (
+        <div className="px-4 py-4 border-b space-y-3" style={{ borderColor: 'var(--border)', background: 'var(--bg-elevated)' }}>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>Novi narrativ</span>
+            <button onClick={() => setShowCreate(false)}><X size={13} style={{ color: 'var(--text-muted)' }} /></button>
+          </div>
+          <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
+            placeholder="Naziv narativa (npr. 'EU nameće uslove Srbiji')"
+            className="w-full px-3 py-2 rounded text-sm border outline-none"
+            style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
+          <input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+            placeholder="Opis i ključne reči (opciono)"
+            className="w-full px-3 py-2 rounded text-sm border outline-none"
+            style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
+          <div className="flex items-center gap-3">
+            <select value={form.narrative_type} onChange={e => setForm(f => ({ ...f, narrative_type: e.target.value }))}
+              className="px-3 py-2 rounded text-sm border"
+              style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+              <option value="thematic">Tematski</option>
+              <option value="systemic">Sistemski</option>
+            </select>
+            <button onClick={() => createMutation.mutate(form)}
+              disabled={!form.name || createMutation.isPending}
+              className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50"
+              style={{ background: '#3b82f6', color: '#fff' }}>
+              {createMutation.isPending ? 'Čuvanje...' : 'Sačuvaj'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="px-4 py-6 text-sm" style={{ color: 'var(--text-muted)' }}>Učitavanje...</div>
+      ) : narratives.length === 0 ? (
+        <div className="px-4 py-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
+          Nema definisanih narativa. {canEdit ? 'Dodajte prvi narrativ pomoću dugmeta iznad.' : ''}
+        </div>
+      ) : (
+        <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+          {narratives.map(n => (
+            <div key={n.id} className="flex items-center gap-4 px-4 py-3">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium truncate" style={{ color: 'var(--text-primary)' }}>{n.name}</span>
+                  <span className="text-xs px-1.5 py-0.5 rounded shrink-0"
+                    style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}>
+                    {NARRATIVE_TYPE_LABELS[n.narrative_type] || n.narrative_type}
+                  </span>
+                </div>
+                {n.description && (
+                  <p className="text-xs mt-0.5 truncate" style={{ color: 'var(--text-muted)' }}>{n.description}</p>
+                )}
+              </div>
+              <span className="text-sm tabular-nums shrink-0" style={{ color: 'var(--text-secondary)' }}>
+                {n.article_count} članaka
+              </span>
+              {canEdit && (
+                <button onClick={() => deleteMutation.mutate(n.id)}
+                  className="text-xs hover:text-red-400 transition-colors shrink-0"
+                  style={{ color: 'var(--text-muted)' }}>
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="px-4 py-2 text-xs border-t" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
+        Poklapanje sa člancima se računa automatski jednom dnevno u 06:00.
+      </div>
+    </div>
+  )
+}
+
 export default function Narratives() {
   const { dateFrom, dateTo, selectedSources } = useFilters()
   const filterParams = toParams({ dateFrom, dateTo, selectedSources })
@@ -410,6 +539,7 @@ export default function Narratives() {
         </p>
       </div>
 
+      <NarrativesPanel />
       <TopicTimeline filterParams={filterParams} />
       <CoordinationPanel filterParams={filterParams} />
       <EntityTable filterParams={filterParams} />

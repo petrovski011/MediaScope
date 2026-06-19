@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from api.v1 import auth, articles, sources, admin, pipeline, dashboard, export, coordination
+from api.v1 import auth, articles, sources, admin, pipeline, dashboard, export, coordination, narratives
 
 router = APIRouter(prefix="/api/v1")
 
@@ -12,3 +12,4 @@ router.include_router(pipeline.router)
 router.include_router(dashboard.router)
 router.include_router(export.router)
 router.include_router(coordination.router)
+router.include_router(narratives.router)
