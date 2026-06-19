@@ -10,6 +10,7 @@ import ArticleDetail from './pages/ArticleDetail'
 import Sources from './pages/Sources'
 import SourceDetail from './pages/SourceDetail'
 import Narratives from './pages/Narratives'
+import Alerts from './pages/Alerts'
 import Admin from './pages/Admin'
 
 const queryClient = new QueryClient({
@@ -44,6 +45,7 @@ export default function App() {
             <Route path="sources" element={<Sources />} />
             <Route path="sources/:id" element={<SourceDetail />} />
             <Route path="narratives" element={<Narratives />} />
+            <Route path="alerts" element={<Alerts />} />
             <Route path="admin" element={<AdminGuard><Admin /></AdminGuard>} />
           </Route>
         </Routes>

@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Newspaper, Radio, TrendingUp, LogOut, Activity, Settings } from 'lucide-react'
+import { LayoutDashboard, Newspaper, Radio, TrendingUp, LogOut, Activity, Settings, Bell } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '../store/auth'
 import GlobalFilters from './GlobalFilters'
@@ -48,6 +48,34 @@ function PipelineStatus() {
   )
 }
 
+function AlertsNavItem() {
+  const { data } = useQuery({
+    queryKey: ['alerts-unread'],
+    queryFn: () => api.get('/alerts?limit=1').then(r => r.data.unread_count || 0),
+    refetchInterval: 60_000,
+  })
+  const unread = data || 0
+
+  return (
+    <NavLink to="/alerts"
+      className={({ isActive }) =>
+        `flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors ${
+          isActive ? 'bg-white/10 text-white' : 'text-[var(--text-secondary)] hover:text-white hover:bg-white/5'
+        }`}>
+      <div className="relative">
+        <Bell size={15} />
+        {unread > 0 && (
+          <span className="absolute -top-1.5 -right-1.5 text-[10px] leading-none px-1 py-0.5 rounded-full font-medium"
+            style={{ background: '#ef4444', color: '#fff', minWidth: 14, textAlign: 'center' }}>
+            {unread > 9 ? '9+' : unread}
+          </span>
+        )}
+      </div>
+      Upozorenja
+    </NavLink>
+  )
+}
+
 export default function Layout() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
@@ -71,6 +99,7 @@ export default function Layout() {
               <Icon size={15} />{label}
             </NavLink>
           ))}
+          <AlertsNavItem />
           {user?.role === 'admin' && (
             <NavLink to="/admin"
               className={({ isActive }) =>

@@ -47,4 +47,9 @@ celery.conf.beat_schedule = {
         "task": "pipeline.tasks.compute_narrative_matching",
         "schedule": crontab(hour=6, minute=0),
     },
+    # Detekcija alerta u 08:00 (posle jutarnjeg scraping runda)
+    "detect-alerts": {
+        "task": "pipeline.tasks.detect_alerts",
+        "schedule": crontab(hour=8, minute=0),
+    },
 }

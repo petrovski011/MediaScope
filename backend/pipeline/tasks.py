@@ -274,6 +274,151 @@ def run_batch_for_articles(article_ids: list[int]):
     return {"status": "done", "metrics": metrics, "article_ids": article_ids}
 
 
+@celery.task(name="pipeline.tasks.detect_alerts")
+def detect_alerts():
+    """
+    Detektuje koordinaciju, topic spikove i probleme sa scraperima.
+    Kreira Alert zapise za nove nalaze. Pokrece se dnevno u 08:00.
+    """
+    logger.info("detect_alerts: pocinje")
+
+    async def _run():
+        from datetime import date, timedelta
+        pg = await asyncpg.connect(PG_DSN)
+        try:
+            today = date.today().isoformat()
+            yesterday = (date.today() - timedelta(days=1)).isoformat()
+            alerts_created = 0
+
+            async def _alert_exists(alert_type: str, alert_date: str) -> bool:
+                return bool(await pg.fetchval(
+                    "SELECT id FROM alerts WHERE alert_type=$1 AND date=$2 LIMIT 1",
+                    alert_type, alert_date,
+                ))
+
+            async def _create_alert(alert_type, severity, title, description, score=None, source_ids=None, date_val=None):
+                nonlocal alerts_created
+                d = date_val or today
+                if await _alert_exists(alert_type, d):
+                    return
+                await pg.execute(
+                    """
+                    INSERT INTO alerts (alert_type, severity, title, description, score, source_ids, date)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                    """,
+                    alert_type, severity, title, description,
+                    float(score) if score is not None else None,
+                    source_ids or [], d,
+                )
+                alerts_created += 1
+
+            # 1. Koordinacioni alert — kopirani clanci (similarity >= 0.85, 5+ izvora)
+            copy_groups = await pg.fetch(
+                """
+                SELECT
+                    similarity_group,
+                    COUNT(DISTINCT a.source_id) AS source_count,
+                    MAX(cs.similarity_score) AS max_score,
+                    ARRAY_AGG(DISTINCT a.source_id) AS sources,
+                    MAX(a.title) AS sample_title
+                FROM copy_similarity cs
+                JOIN articles a ON a.id = cs.article_id
+                WHERE cs.similarity_score >= 0.85
+                  AND a.published_at >= NOW() - INTERVAL '24 hours'
+                GROUP BY similarity_group
+                HAVING COUNT(DISTINCT a.source_id) >= 4
+                ORDER BY source_count DESC
+                LIMIT 5
+                """,
+            )
+            for g in copy_groups:
+                await _create_alert(
+                    "coordination_copy",
+                    "high" if g["source_count"] >= 6 else "medium",
+                    f"Koordinisano kopiranje: {g['source_count']} portala",
+                    f"Identičan ili gotovo identičan tekst detektovan na {g['source_count']} portala. "
+                    f"Primer naslova: {g['sample_title'][:200]}",
+                    score=g["max_score"],
+                    source_ids=list(g["sources"]),
+                )
+
+            # 2. Topic spike — tema ima >200% vise clanaka nego 7-dnevni prosjek
+            topic_spikes = await pg.fetch(
+                """
+                WITH daily AS (
+                    SELECT
+                        aa.primary_topic AS topic,
+                        DATE(a.published_at) AS day,
+                        COUNT(*) AS cnt
+                    FROM article_analysis aa
+                    JOIN articles a ON a.id = aa.article_id
+                    WHERE a.published_at >= NOW() - INTERVAL '8 days'
+                      AND aa.primary_topic IS NOT NULL
+                    GROUP BY aa.primary_topic, DATE(a.published_at)
+                ),
+                baseline AS (
+                    SELECT topic, AVG(cnt) AS avg_cnt
+                    FROM daily WHERE day < CURRENT_DATE
+                    GROUP BY topic
+                ),
+                today AS (
+                    SELECT topic, cnt AS today_cnt
+                    FROM daily WHERE day = CURRENT_DATE
+                )
+                SELECT t.topic, t.today_cnt, b.avg_cnt,
+                       (t.today_cnt / NULLIF(b.avg_cnt, 0)) AS ratio
+                FROM today t
+                JOIN baseline b ON b.topic = t.topic
+                WHERE t.today_cnt / NULLIF(b.avg_cnt, 0) >= 2.5
+                  AND b.avg_cnt >= 3
+                ORDER BY ratio DESC
+                LIMIT 5
+                """,
+            )
+            for spike in topic_spikes:
+                ratio_pct = int((spike["ratio"] - 1) * 100)
+                await _create_alert(
+                    "topic_spike",
+                    "medium",
+                    f"Topic spike: {spike['topic']} (+{ratio_pct}%)",
+                    f"Tema {spike['topic']} ima {spike['today_cnt']} clanaka danas vs "
+                    f"prosek od {spike['avg_cnt']:.1f} — povecanje od {ratio_pct}%.",
+                    score=float(spike["ratio"]),
+                )
+
+            # 3. Scraper gap — portal bez clanaka 48h
+            silent_sources = await pg.fetch(
+                """
+                SELECT s.source_id, s.name,
+                       MAX(a.scraped_at) AS last_scraped
+                FROM sources s
+                LEFT JOIN articles a ON a.source_id = s.source_id
+                  AND a.scraped_at >= NOW() - INTERVAL '7 days'
+                WHERE s.is_active = TRUE
+                GROUP BY s.source_id, s.name
+                HAVING MAX(a.scraped_at) < NOW() - INTERVAL '48 hours'
+                   OR MAX(a.scraped_at) IS NULL
+                """,
+            )
+            for src in silent_sources:
+                await _create_alert(
+                    f"scraper_gap_{src['source_id']}",
+                    "low",
+                    f"Scraper gap: {src['name']}",
+                    f"Portal {src['name']} ({src['source_id']}) nema novih clanaka >48h.",
+                    source_ids=[src["source_id"]],
+                    date_val=today,
+                )
+
+            return {"alerts_created": alerts_created}
+        finally:
+            await pg.close()
+
+    result = _run_async(_run())
+    logger.info("detect_alerts zavrsen: %s", result)
+    return result
+
+
 @celery.task(name="pipeline.tasks.compute_narrative_matching")
 def compute_narrative_matching():
     """
