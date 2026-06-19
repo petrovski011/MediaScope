@@ -56,7 +56,7 @@ class TelegrafScraper(BaseScraper):
             "tag", "autor", "video", "teme", "page", "pretraga",
             "o-nama", "marketing", "impressum", "uslovi-koriscenja",
             "politika-privatnosti", "kontakt", "rss", "newsletter",
-            "sitemap", "404",
+            "sitemap", "404", "redakcija",
         }
         SKIP_SUBSTRINGS = ["telegraf.rs/#", "telegraf.rs/?", "/feed"]
 
