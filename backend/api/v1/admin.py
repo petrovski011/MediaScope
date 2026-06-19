@@ -9,7 +9,7 @@ from typing import Optional
 import redis as redis_lib
 from database import get_db
 from models.users import User
-from models.articles import ScraperRun
+from models.articles import ScraperRun, PipelineBatch
 from models.sources import Source
 from models.analysis import CalibrationFeedback
 from api.deps import require_role
@@ -188,6 +188,41 @@ async def scraper_runs(
                 "error_message": r.error_message,
             }
             for r in runs
+        ],
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "pages": (total + per_page - 1) // per_page if total else 1,
+    }
+
+
+@router.get("/pipeline/batches")
+async def pipeline_batches(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(50, ge=1, le=200),
+    current_user=_require_admin,
+    db: AsyncSession = Depends(get_db),
+):
+    base_q = select(PipelineBatch)
+    total = await db.scalar(select(func.count()).select_from(base_q.subquery()))
+    batches_q = base_q.order_by(desc(PipelineBatch.submitted_at)).limit(per_page).offset((page - 1) * per_page)
+    batches = (await db.execute(batches_q)).scalars().all()
+    return {
+        "items": [
+            {
+                "id": b.id,
+                "batch_id": b.batch_id,
+                "batch_type": b.batch_type,
+                "batch_date": b.batch_date,
+                "status": b.status,
+                "article_count": b.article_count,
+                "articles_saved": b.articles_saved,
+                "articles_failed": b.articles_failed,
+                "submitted_at": b.submitted_at.isoformat() if b.submitted_at else None,
+                "finished_at": b.finished_at.isoformat() if b.finished_at else None,
+                "error_message": b.error_message,
+            }
+            for b in batches
         ],
         "total": total,
         "page": page,

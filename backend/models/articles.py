@@ -76,3 +76,19 @@ class ScraperRun(Base):
     error_message = Column(Text)
     consecutive_failures = Column(Integer, default=0)
     duration_ms = Column(Integer)
+
+
+class PipelineBatch(Base):
+    __tablename__ = "pipeline_batches"
+
+    id = Column(BigInteger, primary_key=True)
+    batch_id = Column(Text, nullable=False, unique=True)
+    batch_type = Column(String(20), nullable=False, default="nightly")
+    batch_date = Column(String(20))
+    status = Column(String(20), nullable=False, default="submitted")
+    article_count = Column(Integer, default=0)
+    articles_saved = Column(Integer, default=0)
+    articles_failed = Column(Integer, default=0)
+    submitted_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    finished_at = Column(DateTime(timezone=True))
+    error_message = Column(Text)

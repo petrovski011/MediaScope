@@ -212,11 +212,22 @@ export default function Admin() {
   const [isNewUser, setIsNewUser] = useState(false)
   const [runsPage, setRunsPage] = useState(1)
   const [runsSource, setRunsSource] = useState('')
+  const [batchesPage, setBatchesPage] = useState(1)
 
   const { data: users = [], isLoading } = useQuery({
     queryKey: ['admin-users'],
     queryFn: () => api.get('/admin/users').then(r => r.data),
   })
+
+  const batchesParams = new URLSearchParams({ page: batchesPage, per_page: 50 })
+  const { data: batchesData } = useQuery({
+    queryKey: ['admin-pipeline-batches', batchesPage],
+    queryFn: () => api.get(`/admin/pipeline/batches?${batchesParams}`).then(r => r.data),
+    keepPreviousData: true,
+  })
+  const batches = batchesData?.items || []
+  const batchesTotal = batchesData?.total || 0
+  const batchesPages = batchesData?.pages || 1
 
   const runsParams = new URLSearchParams({ page: runsPage, per_page: 50 })
   if (runsSource) runsParams.set('source_id', runsSource)
@@ -316,6 +327,84 @@ export default function Admin() {
                 ))}
               </tbody>
             </table>
+          )}
+        </div>
+      </section>
+
+      {/* Pipeline logovi */}
+      <section className="mb-8">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Pipeline logovi (AI analiza)</h2>
+            {batchesTotal > 0 && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{batchesTotal} ukupno</span>}
+          </div>
+        </div>
+        <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead style={{ background: 'var(--bg-elevated)' }}>
+                <tr>
+                  {['Batch ID', 'Tip', 'Datum', 'Status', 'Članci', 'Sačuvano', 'Greške', 'Pokrenuto', 'Trajanje'].map(h => (
+                    <th key={h} className={thCls} style={{ color: 'var(--text-muted)' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {batches.length === 0 ? (
+                  <tr><td colSpan={9} className="px-4 py-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
+                    Nema logova — batch-evi se upisuju od sledećeg noćnog runda.
+                  </td></tr>
+                ) : batches.map(b => {
+                  const durationMs = b.submitted_at && b.finished_at
+                    ? new Date(b.finished_at) - new Date(b.submitted_at)
+                    : null
+                  return (
+                    <tr key={b.id} className="border-b" style={{ borderColor: 'var(--border)' }}>
+                      <td className="px-4 py-2.5 font-mono text-xs max-w-[140px] truncate" style={{ color: 'var(--text-muted)' }}
+                        title={b.batch_id}>{b.batch_id?.slice(0, 20)}…</td>
+                      <td className="px-4 py-2.5 text-xs" style={{ color: 'var(--text-secondary)' }}>{b.batch_type}</td>
+                      <td className="px-4 py-2.5 text-xs" style={{ color: 'var(--text-secondary)' }}>{b.batch_date || '—'}</td>
+                      <td className="px-4 py-2.5">
+                        <span className={`text-xs px-2 py-0.5 rounded ${
+                          b.status === 'completed' ? 'bg-green-500/20 text-green-300' :
+                          b.status === 'failed'    ? 'bg-red-500/20 text-red-300' :
+                          b.status === 'submitted' ? 'bg-blue-500/20 text-blue-300' :
+                                                     'bg-yellow-500/20 text-yellow-300'
+                        }`}>{b.status}</span>
+                      </td>
+                      <td className="px-4 py-2.5 text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>{b.article_count ?? '—'}</td>
+                      <td className="px-4 py-2.5 text-xs tabular-nums text-green-400">{b.articles_saved ?? '—'}</td>
+                      <td className="px-4 py-2.5 text-xs tabular-nums" style={{ color: b.articles_failed > 0 ? '#f87171' : 'var(--text-muted)' }}>
+                        {b.articles_failed ?? '—'}
+                      </td>
+                      <td className="px-4 py-2.5 text-xs" style={{ color: 'var(--text-muted)' }}>
+                        {b.submitted_at ? new Date(b.submitted_at).toLocaleString('sr-Latn', { hour12: false }) : '—'}
+                      </td>
+                      <td className="px-4 py-2.5 text-xs" style={{ color: 'var(--text-muted)' }}>
+                        {durationMs != null ? `${Math.round(durationMs / 60000)}min` : '—'}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {batchesPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-2.5 border-t text-xs"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
+              <span>Stranica {batchesPage} od {batchesPages}</span>
+              <div className="flex gap-1">
+                <button onClick={() => setBatchesPage(p => Math.max(1, p - 1))} disabled={batchesPage === 1}
+                  className="p-1 rounded disabled:opacity-30 hover:bg-white/[0.04]">
+                  <ChevronLeft size={14} />
+                </button>
+                <button onClick={() => setBatchesPage(p => Math.min(batchesPages, p + 1))} disabled={batchesPage >= batchesPages}
+                  className="p-1 rounded disabled:opacity-30 hover:bg-white/[0.04]">
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
           )}
         </div>
       </section>

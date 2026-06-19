@@ -42,6 +42,36 @@ def _run_async(coro):
     return asyncio.get_event_loop().run_until_complete(coro)
 
 
+async def _batch_log_submit(batch_id: str, batch_type: str, batch_date: str, article_count: int):
+    pg = await asyncpg.connect(PG_DSN)
+    try:
+        await pg.execute(
+            """
+            INSERT INTO pipeline_batches (batch_id, batch_type, batch_date, status, article_count, submitted_at)
+            VALUES ($1, $2, $3, 'submitted', $4, NOW())
+            ON CONFLICT (batch_id) DO NOTHING
+            """,
+            batch_id, batch_type, batch_date, article_count,
+        )
+    finally:
+        await pg.close()
+
+
+async def _batch_log_finish(batch_id: str, status: str, articles_saved: int, articles_failed: int, error_message: str = None):
+    pg = await asyncpg.connect(PG_DSN)
+    try:
+        await pg.execute(
+            """
+            UPDATE pipeline_batches
+            SET status=$2, articles_saved=$3, articles_failed=$4, finished_at=NOW(), error_message=$5
+            WHERE batch_id=$1
+            """,
+            batch_id, status, articles_saved, articles_failed, error_message,
+        )
+    finally:
+        await pg.close()
+
+
 async def _fetch_unanalyzed_articles(limit: int = BATCH_SIZE, target_date: date = None) -> list[dict]:
     """Dohvata clanke koji jos nisu analizirani.
 
@@ -136,6 +166,7 @@ def submit_nightly_batch(self, target_date_str: str = None):
 
     r.set(REDIS_KEY_BATCH_ID, batch_id, ex=86400)
     r.set(REDIS_KEY_BATCH_DATE, target.isoformat(), ex=86400)
+    _run_async(_batch_log_submit(batch_id, "nightly", target.isoformat(), len(articles)))
 
     logger.info("Batch submitovan: %s (%d clanaka za %s)", batch_id, len(articles), target)
     return {"status": "submitted", "batch_id": batch_id, "article_count": len(articles), "date": target.isoformat()}
@@ -180,6 +211,7 @@ def submit_catchup_batches(self):
 
     r.set(REDIS_KEY_BATCH_ID, batch_id, ex=86400)
     r.set(REDIS_KEY_BATCH_DATE, "catchup", ex=86400)
+    _run_async(_batch_log_submit(batch_id, "catchup", "catchup", len(articles)))
 
     logger.info("Catch-up batch submitovan: %s (%d clanaka)", batch_id, len(articles))
     return {"status": "submitted", "batch_id": batch_id, "article_count": len(articles)}
@@ -207,7 +239,17 @@ def check_and_process_batch(self):
     logger.info("Batch zavrsen, preuzimamo rezultate...")
     results = list(iter_batch_results(batch_id))
 
-    metrics = _run_async(process_batch_results(results))
+    try:
+        metrics = _run_async(process_batch_results(results))
+        batch_status = "completed"
+        batch_error = None
+    except Exception as exc:
+        logger.exception("Greska pri procesiranju batch-a %s: %s", batch_id, exc)
+        metrics = {"saved": 0, "errors": len(results)}
+        batch_status = "failed"
+        batch_error = str(exc)[:500]
+
+    _run_async(_batch_log_finish(batch_id, batch_status, metrics.get("saved", 0), metrics.get("errors", 0), batch_error))
 
     # Obrisi batch_id iz Redis-a (ne bi trebalo da ga processujemo dva puta)
     r.delete(REDIS_KEY_BATCH_ID)
