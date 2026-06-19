@@ -79,6 +79,16 @@ Uzmi u obzir: izbor reci, citiranje izvora, selekciju cinjenica, naslove i emoti
 Za svaki skor dodaj kratko obrazlozenje (1-2 recenice na srpskom latinici, konkretni signali iz teksta,
 ne ponavljaj skor kao broj — objasni ZASTO).
 
+## 4. Narativni okvir (framing)
+Prepoznaj do 2 narativna okvira koji su JASNO prisutni u clanku (ne pretpostavljaj):
+- "threat_frame" — tematizuje opasnost, krizu, napad na Srbiju ili institucije
+- "conflict_frame" — suprotstavlja aktere (vlast vs opozicija, Srbija vs Zapad)
+- "victim_frame" — neko trpi posledice tudjih odluka ili nepravde
+- "progress_frame" — istice uspehe, reforme, razvoj, pobede
+- "morality_frame" — eticki sud, patriotizam, tradicija, duznost
+
+Ako nijedan okvir nije dovoljno izrazit (confidence < 0.5), vrati praznu listu.
+
 Vrati ISKLJUCIVO ovaj JSON (bez ikakvih objasnjenja van JSON-a):
 {{
   "entities": [
@@ -104,5 +114,9 @@ Vrati ISKLJUCIVO ovaj JSON (bez ikakvih objasnjenja van JSON-a):
   "sensationalism": 0.61,
   "sentiment": "negative",
   "sentiment_score": -0.55,
+  "framings": [
+    {{"framing_type": "conflict_frame", "confidence": 0.82, "supporting_text": "...citat iz clanka..."}},
+    {{"framing_type": "threat_frame", "confidence": 0.61, "supporting_text": "...citat iz clanka..."}}
+  ],
   "analysis_confidence": 0.88
 }}"""

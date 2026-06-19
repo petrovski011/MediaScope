@@ -51,6 +51,8 @@ async def _process(pg: asyncpg.Connection, batch_results: list[tuple]) -> dict:
             metrics["entities_created"] += entity_stats["created"]
             metrics["entities_linked"] += entity_stats["linked"]
 
+            await _save_framings(pg, article_id, parsed.get("framings", []))
+
         except Exception as e:
             logger.exception("Greska pri upisu article %d: %s", article_id, e)
             metrics["errors"] += 1
@@ -177,3 +179,35 @@ async def _save_entities(
             logger.warning("Greska pri linkovanju entiteta %s: %s", name, e)
 
     return {"created": created, "linked": linked}
+
+
+async def _save_framings(
+    pg: asyncpg.Connection, article_id: int, framings: list[dict]
+) -> None:
+    for f in framings[:3]:
+        framing_type = (f.get("framing_type") or "").strip()
+        confidence = f.get("confidence")
+        supporting_text = (f.get("supporting_text") or "")[:500] or None
+        if not framing_type or confidence is None:
+            continue
+
+        type_id = await pg.fetchval(
+            "SELECT id FROM framing_types WHERE name = $1", framing_type
+        )
+        if not type_id:
+            logger.debug("Nepoznat framing_type: %s", framing_type)
+            continue
+
+        try:
+            await pg.execute(
+                """
+                INSERT INTO article_framings (article_id, framing_type_id, confidence, supporting_text)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (article_id, framing_type_id) DO UPDATE SET
+                    confidence = EXCLUDED.confidence,
+                    supporting_text = EXCLUDED.supporting_text
+                """,
+                article_id, type_id, float(confidence), supporting_text,
+            )
+        except Exception as e:
+            logger.warning("Greska pri upisu framinga %s za article %d: %s", framing_type, article_id, e)

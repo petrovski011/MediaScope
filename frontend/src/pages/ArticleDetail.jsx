@@ -53,6 +53,14 @@ function SimilarArticles({ articleId }) {
   )
 }
 
+const FRAMING_LABELS = {
+  threat_frame:   'Okvir pretnje',
+  conflict_frame: 'Okvir sukoba',
+  victim_frame:   'Okvir žrtve',
+  progress_frame: 'Okvir napretka',
+  morality_frame: 'Moralni okvir',
+}
+
 const TOPIC_LABELS = {
   POLITIKA:'Politika', EU_INTEGRACIJE:'EU integracije', KOSOVO:'Kosovo',
   EKONOMIJA:'Ekonomija', INFRASTRUKTURA:'Infrastruktura', BEZBEDNOST:'Bezbednost',
@@ -163,6 +171,30 @@ export default function ArticleDetail() {
                     </div>
                   )
                 })}
+              </div>
+            </div>
+          )}
+
+          {/* Narativni okviri */}
+          {a.framings?.length > 0 && (
+            <div className="rounded-xl p-4 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+              <h2 className="text-xs font-medium mb-3 uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Narativni okviri</h2>
+              <div className="space-y-2">
+                {a.framings.map((f, i) => (
+                  <div key={i} className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm" style={{ color: 'var(--text-primary)' }}>
+                        {FRAMING_LABELS[f.framing_name] || f.framing_name}
+                      </span>
+                      <span className="text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>
+                        {Math.round((f.confidence || 0) * 100)}%
+                      </span>
+                    </div>
+                    {f.supporting_text && (
+                      <p className="text-xs italic" style={{ color: 'var(--text-muted)' }}>"{f.supporting_text}"</p>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
           )}
