@@ -62,19 +62,22 @@ class TelegrafScraper(BaseScraper):
 
         article_urls = []
         for u in urls:
+            # Prihvati samo www.telegraf.rs — ne subdomain-e (ona., auto., sport. itd.)
+            if not (u.startswith("https://www.telegraf.rs") or u.startswith("http://www.telegraf.rs")):
+                continue
             try:
                 path = u.split("telegraf.rs", 1)[1].strip("/")
             except IndexError:
                 continue
             segments = [s for s in path.split("/") if s]
-            # Mora imati bar 2 segmenta (kategorija + slug) i slug mora biti dugačak
+            # Mora imati bar 2 segmenta (kategorija + slug)
             if len(segments) < 2:
                 continue
             if segments[0] in SKIP_SEGMENTS:
                 continue
             if any(s in u for s in SKIP_SUBSTRINGS):
                 continue
-            # Slug (zadnji segment) mora imati bar jedan broj ili biti dugačak
+            # Slug (zadnji segment) mora biti dugačak (ne kratki navigacijski)
             slug = segments[-1]
             if len(slug) < 5:
                 continue
