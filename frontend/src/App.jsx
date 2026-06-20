@@ -15,6 +15,7 @@ import Framing from './pages/Framing'
 import Anomalies from './pages/Anomalies'
 import Coordination from './pages/Coordination'
 import Political from './pages/Political'
+import Methodology from './pages/Methodology'
 import Alerts from './pages/Alerts'
 import Admin from './pages/Admin'
 
@@ -55,6 +56,7 @@ export default function App() {
             <Route path="anomalies" element={<Anomalies />} />
             <Route path="coordination" element={<Coordination />} />
             <Route path="political" element={<Political />} />
+            <Route path="metodologija" element={<Methodology />} />
             <Route path="alerts" element={<Alerts />} />
             <Route path="admin" element={<AdminGuard><Admin /></AdminGuard>} />
           </Route>
