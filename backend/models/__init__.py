@@ -4,7 +4,7 @@ from .articles import Article, ArticleVersion, ScraperRun
 from .analysis import (
     ArticleAnalysis, Entity, ArticleEntity,
     Topic, FramingType, FramingTypeProposal, ArticleFraming,
-    Narrative, ArticleNarrative, NarrativeDailyIntensity,
+    Narrative, NarrativeProposal, ArticleNarrative, NarrativeDailyIntensity,
     CalibrationFeedback, CalibrationPrompt, ArticleEmbedding,
 )
 from .coordination import (
@@ -18,7 +18,7 @@ __all__ = [
     "Article", "ArticleVersion", "ScraperRun",
     "ArticleAnalysis", "Entity", "ArticleEntity",
     "Topic", "FramingType", "FramingTypeProposal", "ArticleFraming",
-    "Narrative", "ArticleNarrative", "NarrativeDailyIntensity",
+    "Narrative", "NarrativeProposal", "ArticleNarrative", "NarrativeDailyIntensity",
     "CalibrationFeedback", "CalibrationPrompt", "ArticleEmbedding",
     "CoordinationCopypaste", "CoordinationFraming", "CoordinationNarrative",
     "Alert", "Anomaly", "OriginTracking", "DailySummary",

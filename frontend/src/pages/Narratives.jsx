@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
-import { User, Building2, MapPin, MessageSquare, Copy, AlertTriangle, Plus, X, BookOpen } from 'lucide-react'
+import { User, Building2, MapPin, MessageSquare, Copy, AlertTriangle, Plus, X, BookOpen, Check, Sparkles } from 'lucide-react'
 import { useFilters, toParams } from '../store/filters'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../store/auth'
@@ -426,6 +426,11 @@ function NarrativesPanel() {
     onSuccess: () => qc.invalidateQueries(['narratives']),
   })
 
+  const validateMutation = useMutation({
+    mutationFn: id => api.post(`/narratives/${id}/validate`).then(r => r.data),
+    onSuccess: () => qc.invalidateQueries(['narratives']),
+  })
+
   const narratives = data?.narratives || []
 
   return (
@@ -497,6 +502,11 @@ function NarrativesPanel() {
                     style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}>
                     {NARRATIVE_TYPE_LABELS[n.narrative_type] || n.narrative_type}
                   </span>
+                  {!n.is_validated && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded shrink-0" style={{ background: '#f59e0b33', color: '#f59e0b' }}>
+                      nevalidiran
+                    </span>
+                  )}
                 </div>
                 {n.description && (
                   <p className="text-xs mt-0.5 truncate" style={{ color: 'var(--text-muted)' }}>{n.description}</p>
@@ -505,6 +515,13 @@ function NarrativesPanel() {
               <span className="text-sm tabular-nums shrink-0" style={{ color: 'var(--text-secondary)' }}>
                 {n.article_count} članaka
               </span>
+              {canEdit && !n.is_validated && (
+                <button onClick={() => validateMutation.mutate(n.id)}
+                  className="flex items-center gap-1 text-xs px-2 py-1 rounded border shrink-0 hover:bg-white/[0.04]"
+                  style={{ borderColor: 'var(--border)', color: '#22c55e' }}>
+                  <Check size={12} /> Validiraj
+                </button>
+              )}
               {canEdit && (
                 <button onClick={() => deleteMutation.mutate(n.id)}
                   className="text-xs hover:text-red-400 transition-colors shrink-0"
@@ -518,7 +535,67 @@ function NarrativesPanel() {
       )}
 
       <div className="px-4 py-2 text-xs border-t" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
-        Poklapanje sa člancima se računa automatski jednom dnevno u 06:00.
+        Članci se mapiraju na <strong>validirane</strong> narative AI-jem tokom analize. Intenzitet se agregira dnevno u 06:00.
+      </div>
+    </div>
+  )
+}
+
+function NarrativeProposalsPanel() {
+  const { user } = useAuth()
+  const canEdit = user?.role === 'admin' || user?.role === 'researcher'
+  const qc = useQueryClient()
+
+  const { data } = useQuery({
+    queryKey: ['narrative-proposals'],
+    queryFn: () => api.get('/narratives/proposals?status=pending').then(r => r.data.proposals),
+    enabled: canEdit,
+  })
+  const approve = useMutation({
+    mutationFn: id => api.post(`/narratives/proposals/${id}/approve`),
+    onSuccess: () => { qc.invalidateQueries(['narrative-proposals']); qc.invalidateQueries(['narratives']) },
+  })
+  const reject = useMutation({
+    mutationFn: id => api.post(`/narratives/proposals/${id}/reject`),
+    onSuccess: () => qc.invalidateQueries(['narrative-proposals']),
+  })
+
+  const proposals = data || []
+  if (!canEdit || proposals.length === 0) return null
+
+  return (
+    <div className="rounded-xl border overflow-hidden mb-4" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+      <div className="px-4 py-3 border-b flex items-center gap-2" style={{ borderColor: 'var(--border)' }}>
+        <Sparkles size={13} style={{ color: '#f59e0b' }} />
+        <h2 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>AI predlozi narativa</h2>
+        <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: '#f59e0b33', color: '#f59e0b' }}>{proposals.length}</span>
+      </div>
+      <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+        {proposals.map(p => (
+          <div key={p.id} className="px-4 py-3 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{p.name}</span>
+                <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}>
+                  {NARRATIVE_TYPE_LABELS[p.narrative_type] || p.narrative_type}
+                </span>
+                {p.occurrences > 1 && <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>×{p.occurrences}</span>}
+              </div>
+              {p.description && <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{p.description}</p>}
+              {p.supporting_text && <p className="text-xs italic mt-1" style={{ color: 'var(--text-muted)' }}>"{p.supporting_text}"</p>}
+            </div>
+            <div className="flex gap-1.5 shrink-0">
+              <button onClick={() => approve.mutate(p.id)} disabled={approve.isPending}
+                className="flex items-center gap-1 px-2 py-1 rounded text-xs border hover:bg-white/[0.04]" style={{ borderColor: 'var(--border)', color: '#22c55e' }}>
+                <Check size={12} /> Prihvati
+              </button>
+              <button onClick={() => reject.mutate(p.id)} disabled={reject.isPending}
+                className="flex items-center gap-1 px-2 py-1 rounded text-xs border hover:bg-white/[0.04]" style={{ borderColor: 'var(--border)', color: '#ef4444' }}>
+                <X size={12} /> Odbij
+              </button>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   )
@@ -539,6 +616,7 @@ export default function Narratives() {
         </p>
       </div>
 
+      <NarrativeProposalsPanel />
       <NarrativesPanel />
       <TopicTimeline filterParams={filterParams} />
       <CoordinationPanel filterParams={filterParams} />

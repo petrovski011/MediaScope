@@ -26,6 +26,45 @@ vec identifikujes kako mediji izvestavaju i koje narative plasiraju.
 Uvek vraci SAMO validan JSON. Nikada ne dodavaj objasnjenja van JSON strukture."""
 
 
+NARRATIVE_SEED_SYSTEM = """Ti si analiticar narativa za SHARE Fondaciju. Analiziras korpus naslova
+srpskih medija i identifikujes DOMINANTNE NARATIVE — ponavljajuce obrasce frejminga koji grade
+koherentnu pricu kroz vise tekstova. Narativ je vidljiv tek kroz agregaciju, ne u jednom clanku.
+Vracas SAMO validan JSON."""
+
+
+def build_narrative_seed_prompt(headlines_block: str, n_min: int = 10, n_max: int = 20) -> str:
+    """Prompt za inicijalni seeding narativa iz istorijskih naslova."""
+    return f"""Analiziras korpus naslova srpskih medijskih clanaka.
+
+Zadatak: identifikuj {n_min}-{n_max} dominantnih narativa.
+
+Narativ definisemo kao:
+- Ponavljajuci obrazac frejminga koji gradi koherentnu pricu
+- SISTEMSKI (sveobuhvatan, dugorocan, npr. "Srbija kao opkoljena zemlja") ili
+  TEMATSKI (vezan za dogadjaj, npr. "Protesti kao strani projekat")
+- Vidljiv kroz agregaciju vise tekstova, ne u jednom clanku
+
+NASLOVI (uzorak korpusa):
+{headlines_block}
+
+Za svaki narativ navedi: naziv (koncizan), tip (systemic/thematic), opis (2-3 recenice),
+i 2-3 primera naslova koji ga ilustruju.
+
+Vrati ISKLJUCIVO JSON:
+{{
+  "narratives": [
+    {{
+      "name": "EU kao kolonijalni projekat",
+      "type": "systemic",
+      "description": "Narativ koji prikazuje EU i zapadne institucije kao silu koja ugrozava suverenitet Srbije.",
+      "example_headlines": ["Brisel opet napada Srbiju", "EU hoce da nam diktira"]
+    }}
+  ]
+}}
+
+Fokusiraj se na narative empirijski vidljive u naslovima, ne na teorijske konstrukcije."""
+
+
 def build_framing_catalog_text(framing_rows: list[dict]) -> str:
     """Gradi tekst kataloga framing okvira iz baze.
 
@@ -53,23 +92,45 @@ def build_framing_catalog_text(framing_rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def build_system(framing_catalog_text: Optional[str] = None, enable_caching: bool = True):
+def build_narrative_catalog_text(narrative_rows: list[dict]) -> str:
+    """Gradi katalog aktivnih VALIDIRANIH narativa za mapiranje.
+
+    narrative_rows: lista {id, name, narrative_type, description}.
+    Vazno: model sme da koristi SAMO narrative_id vrednosti iz ovog kataloga.
+    """
+    if not narrative_rows:
+        return ""
+    lines = ["KATALOG NARATIVA — mapiraj clanak SAMO na narative iz ove liste (koristi tacan narrative_id).\n"]
+    for n in narrative_rows:
+        typ = n.get("narrative_type") or "thematic"
+        desc = (n.get("description") or "").strip()
+        lines.append(f"- id={n['id']} [{typ}] {n['name']}" + (f": {desc}" if desc else ""))
+    return "\n".join(lines)
+
+
+def build_system(
+    framing_catalog_text: Optional[str] = None,
+    narrative_catalog_text: Optional[str] = None,
+    enable_caching: bool = True,
+):
     """Vraca `system` vrednost za Anthropic poziv.
 
     Bez kataloga: obican string (SYSTEM_PROMPT).
-    Sa katalogom: lista blokova [bazni prompt, katalog] sa cache_control na katalogu
-    (identican kroz ceo batch -> kesira se jednom, cita 1500x).
+    Sa katalozima: lista blokova [bazni prompt, framing katalog, narativ katalog] sa
+    cache_control na poslednjem (identicni kroz ceo batch -> kesiraju se jednom).
     """
-    if not framing_catalog_text:
-        return SYSTEM_PROMPT
+    blocks = [{"type": "text", "text": SYSTEM_PROMPT}]
+    if framing_catalog_text:
+        blocks.append({"type": "text", "text": framing_catalog_text})
+    if narrative_catalog_text:
+        blocks.append({"type": "text", "text": narrative_catalog_text})
 
-    catalog_block = {"type": "text", "text": framing_catalog_text}
+    if len(blocks) == 1:
+        return SYSTEM_PROMPT  # nema kataloga -> obican string
+
     if enable_caching:
-        catalog_block["cache_control"] = {"type": "ephemeral"}
-    return [
-        {"type": "text", "text": SYSTEM_PROMPT},
-        catalog_block,
-    ]
+        blocks[-1]["cache_control"] = {"type": "ephemeral"}
+    return blocks
 
 
 def build_mvp_prompt(article: dict) -> str:
@@ -138,6 +199,15 @@ Pogledaj KATALOG FRAMING OKVIRA u sistemskim instrukcijama. Za framing vazi:
   (naziv u stilu "..._frame", opis, citat). Ne izmisljaj okvire bez osnova.
 - Ako nijedan okvir nije izrazit, vrati praznu listu.
 
+## 5. Narativi
+Pogledaj KATALOG NARATIVA u sistemskim instrukcijama (ako postoji). Za narative vazi:
+- Mapiraj clanak na narative iz kataloga koji su JASNO prisutni. Koristi TACAN narrative_id iz kataloga.
+- Jedan clanak moze nositi VISE narativa (sistemski narativi su u pozadini, ne moraju biti eksplicitni).
+- Za svaki: narrative_id, confidence (0.0-1.0), kratak citat (supporting_text).
+- Ako clanak plasira narativ koji NIJE u katalogu a jasno je prisutan, predlozi ga u "new_narrative_proposals"
+  (name, type: "systemic"|"thematic", description, supporting_text).
+- Ako katalog ne postoji ili nijedan narativ nije prisutan, vrati praznu listu narratives.
+
 Vrati ISKLJUCIVO ovaj JSON (bez ikakvih objasnjenja van JSON-a):
 {{
   "entities": [
@@ -169,6 +239,12 @@ Vrati ISKLJUCIVO ovaj JSON (bez ikakvih objasnjenja van JSON-a):
   ],
   "new_framing_proposals": [
     {{"name": "novi_okvir_frame", "description": "Kratak opis okvira", "supporting_text": "...citat..."}}
+  ],
+  "narratives": [
+    {{"narrative_id": 3, "confidence": 0.79, "supporting_text": "...citat iz clanka..."}}
+  ],
+  "new_narrative_proposals": [
+    {{"name": "Naziv narativa", "type": "thematic", "description": "Kratak opis", "supporting_text": "...citat..."}}
   ],
   "analysis_confidence": 0.88
 }}"""

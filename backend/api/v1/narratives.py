@@ -1,11 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
 from api.deps import get_current_user, require_role, get_db
-from models.analysis import Narrative, ArticleNarrative, NarrativeDailyIntensity
+from models.analysis import Narrative, NarrativeProposal, ArticleNarrative, NarrativeDailyIntensity
 
 router = APIRouter(prefix="/narratives", tags=["narratives"])
 
@@ -18,10 +20,11 @@ class NarrativeCreate(BaseModel):
 
 @router.get("")
 async def list_narratives(
+    validated: Optional[bool] = Query(default=None, description="filter po is_validated"),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    rows = await db.execute(
+    q = (
         select(
             Narrative,
             func.count(ArticleNarrative.id).label("article_count"),
@@ -31,6 +34,9 @@ async def list_narratives(
         .group_by(Narrative.id)
         .order_by(desc(func.count(ArticleNarrative.id)))
     )
+    if validated is not None:
+        q = q.where(Narrative.is_validated == validated)
+    rows = await db.execute(q)
     result = []
     for narrative, count in rows.all():
         result.append({
@@ -67,6 +73,93 @@ async def create_narrative(
         "narrative_type": narrative.narrative_type,
         "description": narrative.description,
     }
+
+
+@router.post("/{narrative_id}/validate")
+async def validate_narrative(
+    narrative_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_role("researcher", "admin")),
+):
+    n = await db.get(Narrative, narrative_id)
+    if not n:
+        raise HTTPException(status_code=404, detail="Narrativ nije pronađen")
+    n.is_validated = True
+    n.validated_at = datetime.now(timezone.utc)
+    n.validated_by = current_user.id
+    await db.commit()
+    return {"id": n.id, "is_validated": True}
+
+
+@router.get("/proposals")
+async def list_narrative_proposals(
+    status: str = Query(default="pending"),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_role("researcher", "admin")),
+):
+    rows = (await db.execute(
+        select(NarrativeProposal)
+        .where(NarrativeProposal.status == status)
+        .order_by(desc(NarrativeProposal.occurrences), desc(NarrativeProposal.created_at))
+    )).scalars().all()
+    return {
+        "proposals": [
+            {
+                "id": p.id,
+                "name": p.name,
+                "narrative_type": p.narrative_type,
+                "description": p.description,
+                "supporting_text": p.supporting_text,
+                "occurrences": p.occurrences,
+                "article_id": p.article_id,
+                "created_at": p.created_at.isoformat() if p.created_at else None,
+            }
+            for p in rows
+        ]
+    }
+
+
+@router.post("/proposals/{proposal_id}/approve")
+async def approve_narrative_proposal(
+    proposal_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_role("researcher", "admin")),
+):
+    p = await db.get(NarrativeProposal, proposal_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Predlog nije pronađen")
+    if p.status != "pending":
+        raise HTTPException(status_code=409, detail="Predlog je već obrađen")
+
+    existing = await db.scalar(select(Narrative.id).where(func.lower(Narrative.name) == p.name.lower()))
+    if not existing:
+        db.add(Narrative(
+            name=p.name, narrative_type=p.narrative_type, description=p.description,
+            is_active=True, is_validated=True,
+            detected_at=p.created_at, validated_at=datetime.now(timezone.utc),
+            validated_by=current_user.id,
+        ))
+    p.status = "approved"
+    p.reviewed_by = current_user.id
+    p.reviewed_at = datetime.now(timezone.utc)
+    await db.commit()
+    return {"id": p.id, "status": "approved"}
+
+
+@router.post("/proposals/{proposal_id}/reject")
+async def reject_narrative_proposal(
+    proposal_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_role("researcher", "admin")),
+):
+    p = await db.get(NarrativeProposal, proposal_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Predlog nije pronađen")
+    p.status = "rejected"
+    p.reviewed_by = current_user.id
+    p.reviewed_at = datetime.now(timezone.utc)
+    await db.commit()
+    return {"id": p.id, "status": "rejected"}
 
 
 @router.get("/{narrative_id}")

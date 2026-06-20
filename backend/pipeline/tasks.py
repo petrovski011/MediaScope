@@ -42,16 +42,13 @@ def _run_async(coro):
     return asyncio.get_event_loop().run_until_complete(coro)
 
 
-async def _load_framing_catalog_text() -> str:
-    """Ucitava validirane framing okvire iz baze i gradi katalog tekst za prompt.
-
-    Vraca prazan string ako nema okvira (tada se koristi osnovni SYSTEM_PROMPT).
-    """
-    from pipeline.prompts import build_framing_catalog_text
+async def _load_catalogs() -> tuple:
+    """Ucitava framing + narrative kataloge iz baze. Vraca (framing_text, narrative_text)."""
+    from pipeline.prompts import build_framing_catalog_text, build_narrative_catalog_text
 
     pg = await asyncpg.connect(PG_DSN)
     try:
-        rows = await pg.fetch(
+        framing_rows = await pg.fetch(
             """
             SELECT ft.name, ft.description, t.key AS topic_key
             FROM framing_types ft
@@ -60,19 +57,32 @@ async def _load_framing_catalog_text() -> str:
             ORDER BY t.key NULLS FIRST, ft.name
             """
         )
-        if not rows:
-            return ""
-        return build_framing_catalog_text([dict(r) for r in rows])
+        narrative_rows = await pg.fetch(
+            """
+            SELECT id, name, narrative_type, description
+            FROM narratives
+            WHERE is_active = TRUE AND is_validated = TRUE
+            ORDER BY id
+            LIMIT $1
+            """,
+            settings.NARRATIVE_CATALOG_MAX,
+        )
+        framing_text = build_framing_catalog_text([dict(r) for r in framing_rows]) if framing_rows else ""
+        narrative_text = build_narrative_catalog_text([dict(r) for r in narrative_rows]) if narrative_rows else ""
+        return framing_text, narrative_text
     finally:
         await pg.close()
 
 
 def _build_analysis_system():
-    """Sklapa `system` (sa framing katalogom + cache_control) za analizni poziv."""
+    """Sklapa `system` (framing + narrative katalog + cache_control) za analizni poziv."""
     from pipeline.prompts import build_system
 
-    catalog = _run_async(_load_framing_catalog_text())
-    return build_system(catalog or None, enable_caching=settings.ENABLE_PROMPT_CACHING)
+    framing_text, narrative_text = _run_async(_load_catalogs())
+    return build_system(
+        framing_text or None, narrative_text or None,
+        enable_caching=settings.ENABLE_PROMPT_CACHING,
+    )
 
 
 async def _batch_log_submit(batch_id: str, batch_type: str, batch_date: str, article_count: int):
@@ -515,101 +525,42 @@ def detect_alerts():
 @celery.task(name="pipeline.tasks.compute_narrative_matching")
 def compute_narrative_matching():
     """
-    Za svaki aktivan narrativ, pretrazuje clanke po kljucnim recima (iz naziva + opisa).
-    Upisuje article_narratives veze i azurira narrative_daily_intensity.
-    Pokretati jednom dnevno (npr. 06:00).
+    Agregira narrative_daily_intensity iz article_narratives (koje popunjava AI mapiranje
+    u processor-u). Cista SQL agregacija — bez ILIKE, bez AI. Pokrece se dnevno (06:00).
+
+    NAPOMENA: mapiranje clanaka na narative se sada radi AI-jem tokom analize (Faza 2),
+    ne keyword pretragom. Ovaj task samo preracunava dnevni intenzitet.
     """
-    logger.info("compute_narrative_matching: pocinje")
+    logger.info("compute_narrative_matching (agregacija): pocinje")
 
     async def _run():
         pg = await asyncpg.connect(PG_DSN)
         try:
-            narratives = await pg.fetch(
-                "SELECT id, name, description FROM narratives WHERE is_active = TRUE ORDER BY id"
+            # Preracunaj intenzitet za poslednjih 90 dana iz postojecih article_narratives veza.
+            await pg.execute(
+                """
+                INSERT INTO narrative_daily_intensity
+                    (narrative_id, source_id, date, article_count, avg_confidence, intensity_score)
+                SELECT
+                    an.narrative_id,
+                    a.source_id,
+                    DATE(a.published_at) AS date,
+                    COUNT(*) AS article_count,
+                    AVG(an.confidence) AS avg_confidence,
+                    COUNT(*)::float * COALESCE(AVG(an.confidence), 0) AS intensity_score
+                FROM article_narratives an
+                JOIN articles a ON a.id = an.article_id
+                JOIN narratives n ON n.id = an.narrative_id AND n.is_active = TRUE
+                WHERE a.published_at >= NOW() - INTERVAL '90 days'
+                GROUP BY an.narrative_id, a.source_id, DATE(a.published_at)
+                ON CONFLICT (narrative_id, source_id, date) DO UPDATE SET
+                    article_count = EXCLUDED.article_count,
+                    avg_confidence = EXCLUDED.avg_confidence,
+                    intensity_score = EXCLUDED.intensity_score
+                """
             )
-            if not narratives:
-                logger.info("Nema aktivnih narativa")
-                return {"narratives_processed": 0}
-
-            total_linked = 0
-            for narrative in narratives:
-                nid = narrative["id"]
-                # Kljucne reci iz naziva i opisa (reci >= 4 karaktera)
-                raw_terms = (narrative["name"] or "") + " " + (narrative["description"] or "")
-                keywords = [w.strip(".,!?():") for w in raw_terms.split() if len(w.strip(".,!?():")) >= 4]
-                if not keywords:
-                    continue
-
-                # ILIKE za svaku kljucnu rec (kombinacija OR)
-                conditions = " OR ".join(
-                    f"(LOWER(a.title) LIKE '%{kw.lower()}%' OR LOWER(a.text_content) LIKE '%{kw.lower()}%')"
-                    for kw in keywords[:8]
-                )
-                articles = await pg.fetch(
-                    f"""
-                    SELECT a.id, a.source_id, a.published_at, a.title,
-                        (
-                            SELECT COUNT(*) FROM (
-                                SELECT 1 FROM unnest($1::text[]) kw
-                                WHERE LOWER(a.title || ' ' || COALESCE(a.text_content,'')) LIKE '%' || LOWER(kw) || '%'
-                            ) m
-                        )::float / $2 AS match_ratio
-                    FROM articles a
-                    WHERE ({conditions})
-                      AND a.published_at >= NOW() - INTERVAL '90 days'
-                    ORDER BY a.published_at DESC
-                    LIMIT 500
-                    """,
-                    keywords[:8], float(len(keywords[:8])),
-                )
-
-                linked = 0
-                for art in articles:
-                    confidence = min(1.0, float(art["match_ratio"] or 0) * 1.2)
-                    if confidence < 0.25:
-                        continue
-                    snippet = art["title"][:300] if art["title"] else None
-                    await pg.execute(
-                        """
-                        INSERT INTO article_narratives (article_id, narrative_id, confidence, supporting_text)
-                        VALUES ($1, $2, $3, $4)
-                        ON CONFLICT (article_id, narrative_id) DO UPDATE SET
-                            confidence = EXCLUDED.confidence,
-                            supporting_text = EXCLUDED.supporting_text
-                        """,
-                        art["id"], nid, confidence, snippet,
-                    )
-                    linked += 1
-
-                logger.info("Narrativ %d: %d clanaka linkovanoo", nid, linked)
-                total_linked += linked
-
-                # Azuriraj NarrativeDailyIntensity
-                await pg.execute(
-                    """
-                    INSERT INTO narrative_daily_intensity
-                        (narrative_id, source_id, date, article_count, avg_confidence, intensity_score)
-                    SELECT
-                        $1 AS narrative_id,
-                        a.source_id,
-                        DATE(a.published_at) AS date,
-                        COUNT(*) AS article_count,
-                        AVG(an.confidence) AS avg_confidence,
-                        COUNT(*)::float * AVG(an.confidence) AS intensity_score
-                    FROM article_narratives an
-                    JOIN articles a ON a.id = an.article_id
-                    WHERE an.narrative_id = $1
-                      AND a.published_at >= NOW() - INTERVAL '90 days'
-                    GROUP BY a.source_id, DATE(a.published_at)
-                    ON CONFLICT (narrative_id, source_id, date) DO UPDATE SET
-                        article_count = EXCLUDED.article_count,
-                        avg_confidence = EXCLUDED.avg_confidence,
-                        intensity_score = EXCLUDED.intensity_score
-                    """,
-                    nid,
-                )
-
-            return {"narratives_processed": len(narratives), "total_linked": total_linked}
+            rows = await pg.fetchval("SELECT COUNT(*) FROM narrative_daily_intensity")
+            return {"intensity_rows": rows}
         finally:
             await pg.close()
 

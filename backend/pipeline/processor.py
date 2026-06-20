@@ -53,6 +53,8 @@ async def _process(pg: asyncpg.Connection, batch_results: list[tuple]) -> dict:
 
             await _save_framings(pg, article_id, parsed.get("primary_topic"), parsed.get("framings", []))
             await _save_framing_proposals(pg, article_id, parsed.get("primary_topic"), parsed.get("new_framing_proposals", []))
+            await _save_narratives(pg, article_id, parsed.get("narratives", []))
+            await _save_narrative_proposals(pg, article_id, parsed.get("new_narrative_proposals", []))
 
         except Exception as e:
             logger.exception("Greska pri upisu article %d: %s", article_id, e)
@@ -238,6 +240,79 @@ async def _save_framings(
             )
         except Exception as e:
             logger.warning("Greska pri upisu framinga %s za article %d: %s", framing_type, article_id, e)
+
+
+async def _save_narratives(
+    pg: asyncpg.Connection, article_id: int, narratives: list[dict]
+) -> None:
+    """Upisuje AI mapiranje clanka na VALIDIRANE narative (po narrative_id iz kataloga)."""
+    for n in (narratives or [])[: settings.MAX_NARRATIVES_PER_ARTICLE]:
+        nid = n.get("narrative_id")
+        confidence = n.get("confidence")
+        supporting_text = (n.get("supporting_text") or "")[:500] or None
+        if nid is None or confidence is None:
+            continue
+        # Mapiraj samo na postojeci, aktivan, validiran narativ (model moze pogresiti id)
+        valid = await pg.fetchval(
+            "SELECT id FROM narratives WHERE id = $1 AND is_active = TRUE AND is_validated = TRUE",
+            int(nid),
+        )
+        if not valid:
+            logger.debug("Narrative_id %s nije validan/aktivan — preskacem", nid)
+            continue
+        try:
+            await pg.execute(
+                """
+                INSERT INTO article_narratives (article_id, narrative_id, confidence, supporting_text)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (article_id, narrative_id) DO UPDATE SET
+                    confidence = EXCLUDED.confidence,
+                    supporting_text = EXCLUDED.supporting_text
+                """,
+                article_id, int(nid), float(confidence), supporting_text,
+            )
+        except Exception as e:
+            logger.warning("Greska pri upisu narativa %s za article %d: %s", nid, article_id, e)
+
+
+async def _save_narrative_proposals(
+    pg: asyncpg.Connection, article_id: int, proposals: list[dict]
+) -> None:
+    """Hvata AI predloge novih narativa u staging (narrative_proposals), dedup po imenu."""
+    for p in (proposals or [])[:3]:
+        name = (p.get("name") or "").strip()
+        if not name:
+            continue
+        ntype = (p.get("type") or "thematic").strip().lower()
+        if ntype not in ("systemic", "thematic"):
+            ntype = "thematic"
+        description = (p.get("description") or "")[:1000] or None
+        supporting_text = (p.get("supporting_text") or "")[:500] or None
+
+        # Ako narativ vec postoji (po imenu) — nije predlog
+        exists = await pg.fetchval("SELECT 1 FROM narratives WHERE LOWER(name) = LOWER($1) LIMIT 1", name)
+        if exists:
+            continue
+        try:
+            updated = await pg.fetchval(
+                """
+                UPDATE narrative_proposals SET occurrences = occurrences + 1
+                WHERE LOWER(name) = LOWER($1) AND status = 'pending'
+                RETURNING id
+                """,
+                name,
+            )
+            if updated is None:
+                await pg.execute(
+                    """
+                    INSERT INTO narrative_proposals
+                        (name, narrative_type, description, supporting_text, article_id, status)
+                    VALUES ($1, $2, $3, $4, $5, 'pending')
+                    """,
+                    name, ntype, description, supporting_text, article_id,
+                )
+        except Exception as e:
+            logger.warning("Greska pri upisu narativ predloga %s: %s", name, e)
 
 
 async def _save_framing_proposals(

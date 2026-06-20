@@ -154,6 +154,23 @@ class Narrative(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class NarrativeProposal(Base):
+    """AI predlog novog narativa (per-article) — staging dok ga istrazivac ne validira."""
+    __tablename__ = "narrative_proposals"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(300), nullable=False)
+    narrative_type = Column(String(20), nullable=False, default="thematic")
+    description = Column(Text)
+    supporting_text = Column(Text)
+    article_id = Column(BigInteger, ForeignKey("articles.id"))
+    status = Column(String(20), nullable=False, default="pending")  # pending, approved, rejected
+    occurrences = Column(Integer, default=1)
+    reviewed_by = Column(Integer, ForeignKey("users.id"))
+    reviewed_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class ArticleNarrative(Base):
     __tablename__ = "article_narratives"
 

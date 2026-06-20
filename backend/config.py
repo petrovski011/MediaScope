@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     MAX_FRAMINGS_PER_ARTICLE: int = 5
     MAX_NARRATIVES_PER_ARTICLE: int = 5
     NARRATIVE_CATALOG_MAX: int = 40
+    NARRATIVE_SEED_COUNT_MIN: int = 10
+    NARRATIVE_SEED_COUNT_MAX: int = 20
     ENABLE_PROMPT_CACHING: bool = True
 
     SQLITE_DB_PATH: str = "/data/mediascope.db"
