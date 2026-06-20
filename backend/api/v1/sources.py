@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func, desc, text
 from typing import Optional, List
 
 from database import get_db
@@ -10,6 +10,40 @@ from models.analysis import ArticleAnalysis
 from api.deps import get_current_user
 
 router = APIRouter(prefix="/sources", tags=["sources"])
+
+
+@router.get("/comparison")
+async def sources_comparison(
+    source_ids: str = Query(..., description="comma-separated source ids"),
+    metric: str = Query(default="political_score"),
+    days: int = Query(default=30, ge=7, le=180),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Vremenska serija (dnevni prosek) izabrane metrike za vise izvora — za poredjenje."""
+    col = {
+        "political_score": "aa.political_score",
+        "sensationalism": "aa.sensationalism",
+        "value_score": "aa.value_score",
+    }.get(metric, "aa.political_score")
+    srcs = [s.strip() for s in source_ids.split(",") if s.strip()]
+    if not srcs:
+        return {"metric": metric, "sources": [], "series": []}
+
+    rows = (await db.execute(text(f"""
+        SELECT a.source_id, DATE(a.published_at) AS day, AVG({col}) AS val
+        FROM articles a JOIN article_analysis aa ON aa.article_id = a.id
+        WHERE a.source_id = ANY(:srcs) AND a.published_at >= NOW() - INTERVAL '{days} days'
+          AND {col} IS NOT NULL
+        GROUP BY a.source_id, DATE(a.published_at)
+        ORDER BY day
+    """), {"srcs": srcs})).all()
+
+    by_day: dict = {}
+    for r in rows:
+        d = r.day.isoformat()
+        by_day.setdefault(d, {"date": d})[r.source_id] = round(float(r.val), 3)
+    return {"metric": metric, "sources": srcs, "series": [by_day[d] for d in sorted(by_day)]}
 
 
 @router.get("")

@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func, desc, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
@@ -74,6 +74,37 @@ async def list_framing_types(
             }
             for ft, tkey, usage in rows.all()
         ]
+    }
+
+
+@router.get("/evolution")
+async def framing_evolution(
+    topic: str = Query(...),
+    days: int = Query(default=30, ge=7, le=180),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Evolucija framing okvira kroz vreme za temu (dnevni udeo). Za stacked area chart."""
+    rows = (await db.execute(text(f"""
+        SELECT DATE(a.published_at) AS day, ft.name AS framing, COUNT(*) AS cnt
+        FROM article_framings af
+        JOIN framing_types ft ON ft.id = af.framing_type_id
+        JOIN articles a ON a.id = af.article_id
+        JOIN article_analysis aa ON aa.article_id = a.id AND aa.primary_topic = :topic
+        WHERE a.published_at >= NOW() - INTERVAL '{days} days'
+        GROUP BY DATE(a.published_at), ft.name
+        ORDER BY day
+    """), {"topic": topic})).all()
+
+    framings = sorted({r.framing for r in rows})
+    by_day: dict = {}
+    for r in rows:
+        d = r.day.isoformat()
+        by_day.setdefault(d, {"date": d})[r.framing] = r.cnt
+    return {
+        "topic": topic,
+        "framings": framings,
+        "series": [by_day[d] for d in sorted(by_day)],
     }
 
 

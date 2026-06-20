@@ -1,8 +1,11 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Hash, EyeOff, BarChart3, Clock, AlertTriangle } from 'lucide-react'
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+import { Hash, EyeOff, BarChart3, Clock, AlertTriangle, TrendingUp } from 'lucide-react'
 import { useFilters, toParams } from '../store/filters'
 import api from '../lib/api'
+
+const FR_COLORS = ['#6366f1', '#3b82f6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#8b5cf6', '#14b8a6']
 
 const TOPIC_LABELS = {
   POLITIKA: 'Politika', EU_INTEGRACIJE: 'EU integracije', KOSOVO: 'Kosovo',
@@ -12,6 +15,33 @@ const TOPIC_LABELS = {
   SPOLJNA_POLITIKA: 'Spoljna politika', LOKALNA_VLAST: 'Lokalna vlast', DRUSTVO: 'Društvo',
 }
 const tlabel = (t) => TOPIC_LABELS[t] || t
+
+function FramingEvolution({ topic }) {
+  const { data } = useQuery({
+    queryKey: ['framing-evolution', topic],
+    queryFn: () => api.get(`/framing/evolution?topic=${encodeURIComponent(topic)}&days=30`).then(r => r.data),
+  })
+  if (!data?.series?.length || !data.framings?.length) return null
+  return (
+    <div className="rounded-xl border p-4" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+      <div className="flex items-center gap-2 mb-3">
+        <TrendingUp size={14} style={{ color: 'var(--text-muted)' }} />
+        <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Evolucija framinga (30 dana)</h3>
+      </div>
+      <ResponsiveContainer width="100%" height={220}>
+        <AreaChart data={data.series} margin={{ left: 0, right: 8 }}>
+          <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--text-muted)' }} />
+          <YAxis tick={{ fontSize: 10, fill: 'var(--text-muted)' }} width={28} />
+          <Tooltip contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
+          {data.framings.map((f, i) => (
+            <Area key={f} type="monotone" dataKey={f} stackId="1"
+              stroke={FR_COLORS[i % FR_COLORS.length]} fill={FR_COLORS[i % FR_COLORS.length]} fillOpacity={0.6} />
+          ))}
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
 
 function OriginTimeline({ topic }) {
   const { data } = useQuery({
@@ -143,6 +173,7 @@ function CoverageDetail({ topic, filterParams }) {
         </div>
       )}
 
+      <FramingEvolution topic={topic} />
       <OriginTimeline topic={topic} />
     </div>
   )
