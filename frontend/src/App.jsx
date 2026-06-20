@@ -13,6 +13,7 @@ import Narratives from './pages/Narratives'
 import Topics from './pages/Topics'
 import Framing from './pages/Framing'
 import Anomalies from './pages/Anomalies'
+import Coordination from './pages/Coordination'
 import Alerts from './pages/Alerts'
 import Admin from './pages/Admin'
 
@@ -51,6 +52,7 @@ export default function App() {
             <Route path="topics" element={<Topics />} />
             <Route path="framing" element={<Framing />} />
             <Route path="anomalies" element={<Anomalies />} />
+            <Route path="coordination" element={<Coordination />} />
             <Route path="alerts" element={<Alerts />} />
             <Route path="admin" element={<AdminGuard><Admin /></AdminGuard>} />
           </Route>

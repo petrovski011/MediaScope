@@ -677,6 +677,121 @@ def detect_alerts():
     return result
 
 
+@celery.task(name="pipeline.tasks.detect_coordination")
+def detect_coordination():
+    """
+    Framing + narativna koordinacija. Za (tema/narativ + dan) gde >= 3 izvora dele isti
+    okvir/narativ -> upis u coordination_framing / coordination_narrative (+ same_owner_group).
+    Date-only izvori (RTS/Tanjug) se broje u pokrivenost ali ne uticu na vremensku tesnocu.
+    Pokrece se dnevno (02:55, posle copy-paste).
+    """
+    logger.info("detect_coordination: pocinje")
+
+    async def _run():
+        from datetime import date
+        pg = await asyncpg.connect(PG_DSN)
+        try:
+            today = date.today().isoformat()
+            og = {r["source_id"]: r["owner_group"] for r in await pg.fetch("SELECT source_id, owner_group FROM sources")}
+
+            def same_owner(srcs):
+                groups = {og.get(s) for s in srcs if og.get(s)}
+                return len(groups) == 1 and len(srcs) > 1
+
+            framing_created = 0
+            narrative_created = 0
+
+            # --- Framing koordinacija: ista tema+okvir, >=3 izvora, poslednjih 24h ---
+            fr_rows = await pg.fetch(
+                """
+                SELECT aa.primary_topic AS topic, af.framing_type_id,
+                       ARRAY_AGG(DISTINCT a.source_id) AS sources,
+                       AVG(af.confidence) AS avg_conf, COUNT(DISTINCT a.source_id) AS src_count
+                FROM article_framings af
+                JOIN articles a ON a.id = af.article_id
+                JOIN article_analysis aa ON aa.article_id = a.id
+                WHERE a.published_at >= NOW() - INTERVAL '24 hours' AND aa.primary_topic IS NOT NULL
+                GROUP BY aa.primary_topic, af.framing_type_id
+                HAVING COUNT(DISTINCT a.source_id) >= 3
+                """
+            )
+            for r in fr_rows:
+                srcs = list(r["sources"])
+                so = same_owner(srcs)
+                score = min(1.0, (r["src_count"] / 6.0) * float(r["avg_conf"] or 0.5) + 0.3)
+                if score < settings.FRAMING_COORD_MIN_SCORE:
+                    continue
+                exists = await pg.fetchval(
+                    "SELECT id FROM coordination_framing WHERE framing_type_id=$1 AND date=$2 LIMIT 1",
+                    r["framing_type_id"], today,
+                )
+                if exists:
+                    continue
+                await pg.execute(
+                    """INSERT INTO coordination_framing
+                       (framing_type_id, source_ids, date, article_count, coordination_score, same_owner_group, detected_at)
+                       VALUES ($1,$2,$3,$4,$5,$6,NOW())""",
+                    r["framing_type_id"], srcs, today, r["src_count"], score, so,
+                )
+                framing_created += 1
+
+            # --- Narativna koordinacija: isti narativ, >=3 izvora, poslednjih 48h ---
+            nr_rows = await pg.fetch(
+                """
+                SELECT an.narrative_id, n.name,
+                       ARRAY_AGG(DISTINCT a.source_id) AS sources,
+                       AVG(an.confidence) AS avg_conf, COUNT(DISTINCT a.source_id) AS src_count
+                FROM article_narratives an
+                JOIN articles a ON a.id = an.article_id
+                JOIN narratives n ON n.id = an.narrative_id
+                WHERE a.published_at >= NOW() - INTERVAL '48 hours'
+                GROUP BY an.narrative_id, n.name
+                HAVING COUNT(DISTINCT a.source_id) >= 3
+                """
+            )
+            for r in nr_rows:
+                srcs = list(r["sources"])
+                so = same_owner(srcs)
+                score = min(1.0, (r["src_count"] / 6.0) * float(r["avg_conf"] or 0.5) + 0.3)
+                if score < settings.NARRATIVE_COORD_MIN_SCORE:
+                    continue
+                exists = await pg.fetchval(
+                    "SELECT id FROM coordination_narrative WHERE narrative_id=$1 AND date=$2 LIMIT 1",
+                    r["narrative_id"], today,
+                )
+                if exists:
+                    continue
+                await pg.execute(
+                    """INSERT INTO coordination_narrative
+                       (narrative_id, source_ids, date, article_count, coordination_score, same_owner_group, detected_at)
+                       VALUES ($1,$2,$3,$4,$5,$6,NOW())""",
+                    r["narrative_id"], srcs, today, r["src_count"], score, so,
+                )
+                narrative_created += 1
+                # alert za jaku cross-group narativnu koordinaciju
+                if not so and score >= 0.8 and r["src_count"] >= 4:
+                    ex = await pg.fetchval(
+                        "SELECT id FROM alerts WHERE alert_type='narrative_coord' AND date=$1 AND title=$2 LIMIT 1",
+                        today, f"Narativna koordinacija: {r['name'][:120]}",
+                    )
+                    if not ex:
+                        await pg.execute(
+                            """INSERT INTO alerts (alert_type, severity, title, description, score, source_ids, date)
+                               VALUES ('narrative_coord','high',$1,$2,$3,$4,$5)""",
+                            f"Narativna koordinacija: {r['name'][:120]}",
+                            f"Narativ '{r['name']}' plasiran na {r['src_count']} portala različitih vlasničkih grupa u 48h.",
+                            score, srcs, today,
+                        )
+
+            return {"framing_coord": framing_created, "narrative_coord": narrative_created}
+        finally:
+            await pg.close()
+
+    result = _run_async(_run())
+    logger.info("detect_coordination zavrsen: %s", result)
+    return result
+
+
 @celery.task(name="pipeline.tasks.detect_anomalies")
 def detect_anomalies():
     """

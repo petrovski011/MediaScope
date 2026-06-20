@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Newspaper, Radio, TrendingUp, LogOut, Activity, Settings, Bell, Layers, Hash, Zap } from 'lucide-react'
+import { LayoutDashboard, Newspaper, Radio, TrendingUp, LogOut, Activity, Settings, Bell, Layers, Hash, Zap, Share2 } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '../store/auth'
 import GlobalFilters from './GlobalFilters'
@@ -13,6 +13,7 @@ const nav = [
   { to: '/topics',     icon: Hash,            label: 'Teme' },
   { to: '/framing',    icon: Layers,          label: 'Framing' },
   { to: '/anomalies',  icon: Zap,             label: 'Anomalije' },
+  { to: '/coordination', icon: Share2,        label: 'Koordinacija' },
 ]
 
 function PipelineStatus() {

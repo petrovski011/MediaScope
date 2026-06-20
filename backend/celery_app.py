@@ -57,6 +57,11 @@ celery.conf.beat_schedule = {
         "task": "pipeline.tasks.detect_copypaste",
         "schedule": crontab(hour=2, minute=45),
     },
+    # Framing + narativna koordinacija — posle copy-paste
+    "detect-coordination": {
+        "task": "pipeline.tasks.detect_coordination",
+        "schedule": crontab(hour=2, minute=55),
+    },
     # Detekcija alerta u 08:00 (posle jutarnjeg scraping runda)
     "detect-alerts": {
         "task": "pipeline.tasks.detect_alerts",

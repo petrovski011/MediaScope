@@ -281,3 +281,84 @@ async def find_similar_articles(
         ],
         "methodology_note": METHODOLOGY_NOTE,
     }
+
+
+@router.get("/network")
+async def coordination_network(
+    date_from: Optional[str] = Query(default=None),
+    date_to: Optional[str] = Query(default=None),
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Mreza koordinacije: cvorovi = izvori, ivice = jacina koordinacije (copy-paste +
+    framing + narativna). Ivice nose same_owner_group flag (vlasnicki kontekst).
+    """
+    from itertools import combinations
+
+    og_rows = (await db.execute(text("SELECT source_id, name, owner_group FROM sources WHERE is_active = TRUE"))).all()
+    og_map = {r.source_id: r.owner_group for r in og_rows}
+    node_meta = {r.source_id: {"name": r.name, "owner_group": r.owner_group} for r in og_rows}
+
+    edges: dict = {}
+    node_weight: dict = {}
+
+    def add_edge(a, b, w, typ):
+        if a == b or a not in og_map or b not in og_map:
+            return
+        key = tuple(sorted([a, b]))
+        e = edges.setdefault(key, {"weight": 0.0, "types": set()})
+        e["weight"] += w
+        e["types"].add(typ)
+        node_weight[a] = node_weight.get(a, 0) + w
+        node_weight[b] = node_weight.get(b, 0) + w
+
+    cp_where = ""
+    params = {}
+    if date_from:
+        cp_where += " AND cc.detected_at >= :date_from"; params["date_from"] = date_from
+    if date_to:
+        cp_where += " AND cc.detected_at <= :date_to"; params["date_to"] = date_to
+    cp = (await db.execute(text(f"""
+        SELECT a.source_id AS sa, b.source_id AS sb, cc.similarity_score AS s
+        FROM coordination_copypaste cc
+        JOIN articles a ON a.id = cc.article_id_a
+        JOIN articles b ON b.id = cc.article_id_b
+        WHERE a.source_id <> b.source_id {cp_where}
+    """), params)).all()
+    for r in cp:
+        add_edge(r.sa, r.sb, float(r.s), "copypaste")
+
+    for tbl, typ in [("coordination_framing", "framing"), ("coordination_narrative", "narrative")]:
+        gw = ""
+        gp = {}
+        if date_from:
+            gw += " AND date >= :date_from"; gp["date_from"] = date_from
+        if date_to:
+            gw += " AND date <= :date_to"; gp["date_to"] = date_to
+        grows = (await db.execute(text(f"SELECT source_ids, coordination_score FROM {tbl} WHERE 1=1 {gw}"), gp)).all()
+        for r in grows:
+            srcs = list(r.source_ids or [])
+            for a, b in combinations(srcs, 2):
+                add_edge(a, b, float(r.coordination_score or 0.5) * 0.5, typ)
+
+    edge_list = [
+        {
+            "source": a, "target": b,
+            "weight": round(e["weight"], 2),
+            "types": sorted(e["types"]),
+            "same_owner_group": (og_map.get(a) is not None and og_map.get(a) == og_map.get(b)),
+        }
+        for (a, b), e in edges.items()
+    ]
+    nodes = [
+        {"id": sid, "name": node_meta[sid]["name"], "owner_group": node_meta[sid]["owner_group"],
+         "weight": round(node_weight.get(sid, 0), 2)}
+        for sid in node_meta if node_weight.get(sid, 0) > 0
+    ]
+
+    return {
+        "nodes": nodes,
+        "edges": sorted(edge_list, key=lambda x: -x["weight"]),
+        "methodology_note": METHODOLOGY_NOTE,
+    }
