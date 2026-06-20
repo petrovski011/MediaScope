@@ -1,20 +1,23 @@
-"""RTS (rts.rs) scraper — HTML listing + article parsing.
+"""RTS (rts.rs) scraper — RSS listing + HTML article parsing.
 
-No RSS, no Cloudflare. Listing: /page/stories/sr/ (167 links).
-All content is in Cyrillic — normalize to Latin with cyrillic_to_latin().
+URL discovery via RSS (reliable, avoids IP-based HTML blocking).
+Full text extracted from article pages.
+RSS also provides exact timestamps and Cyrillic subtitle, used as fallback.
 """
 from __future__ import annotations
 
 import re
+from calendar import timegm
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
 
+import feedparser
 from bs4 import BeautifulSoup
 
 from ..base import ArticleData, BaseScraper, ScraperError
-from ..utils import clean_text, cyrillic_to_latin, parse_sr_date, unique_urls
+from ..utils import clean_text, cyrillic_to_latin, unique_urls
 
-LISTING_URL = "https://www.rts.rs/page/stories/sr/"
+RSS_URL = "https://www.rts.rs/vesti/rss.html"
 BASE_URL = "https://www.rts.rs"
 
 # Article URL pattern: /vesti/KATEGORIJA/BROJ/NASLOV.html
@@ -24,28 +27,53 @@ _ARTICLE_RE = re.compile(r"/vesti/[^/]+/\d+/[^/]+\.html")
 class RtsScraper(BaseScraper):
     SOURCE_ID = "rts"
 
+    def __init__(self):
+        super().__init__()
+        # Populated by get_article_urls(); consumed by parse_article()
+        self._rss_meta: Dict[str, dict] = {}
+
     def get_article_urls(self) -> List[str]:
-        self.logger.info("Fetching listing: %s", LISTING_URL)
+        self.logger.info("Fetching RSS: %s", RSS_URL)
         try:
-            resp = self.fetch(LISTING_URL)
+            resp = self.fetch(RSS_URL)
         except ScraperError as exc:
-            self.logger.error("Listing fetch failed: %s", exc)
+            self.logger.error("RSS fetch failed: %s", exc)
             return []
 
-        soup = BeautifulSoup(resp.content, "lxml")
+        feed = feedparser.parse(resp.content)
         urls: list[str] = []
-        for a in soup.find_all("a", href=True):
-            href = a["href"]
-            if _ARTICLE_RE.search(href):
-                full = href if href.startswith("http") else BASE_URL + href
-                urls.append(full)
+        for entry in feed.entries:
+            link = entry.get("link", "")
+            if not link or not _ARTICLE_RE.search(link):
+                continue
+            full = link if link.startswith("http") else BASE_URL + link
+            urls.append(full)
+
+            # Cache RSS metadata for use in parse_article()
+            published_at: Optional[datetime] = None
+            if entry.get("published_parsed"):
+                published_at = datetime(*entry.published_parsed[:6])
+
+            summary = entry.get("summary", "") or ""
+            category = None
+            if entry.get("tags"):
+                category = entry["tags"][0].get("term", "")
+
+            self._rss_meta[full] = {
+                "title": cyrillic_to_latin(entry.get("title", "")),
+                "subtitle": cyrillic_to_latin(summary) if summary else None,
+                "published_at": published_at,
+                "category": cyrillic_to_latin(category) if category else None,
+            }
 
         result = unique_urls(urls)
-        self.logger.info("Found %d article URLs", len(result))
+        self.logger.info("Found %d article URLs via RSS", len(result))
         return result
 
     def parse_article(self, url: str) -> Optional[ArticleData]:
         self.logger.info("Parsing: %s", url)
+        rss = self._rss_meta.get(url, {})
+
         try:
             resp = self.fetch(url)
         except ScraperError as exc:
@@ -54,7 +82,7 @@ class RtsScraper(BaseScraper):
 
         soup = BeautifulSoup(resp.content, "lxml")
 
-        # Title — OG tag is most reliable
+        # Title — OG tag first, then h1, fallback to RSS
         og_title = soup.find("meta", property="og:title")
         title_raw = ""
         if og_title and og_title.get("content"):
@@ -62,21 +90,23 @@ class RtsScraper(BaseScraper):
         if not title_raw:
             h1 = soup.find("h1")
             title_raw = h1.get_text(strip=True) if h1 else ""
-        title = cyrillic_to_latin(title_raw)
+        title = cyrillic_to_latin(title_raw) or rss.get("title", "")
 
         if not title:
             self.logger.warning("No title: %s", url)
             return None
 
-        # Subtitle / lead
+        # Subtitle / lead — HTML first, RSS summary as fallback
         subtitle: Optional[str] = None
         lead_el = soup.find(class_=lambda c: c and "lead" in c.lower())
         if lead_el:
             subtitle = cyrillic_to_latin(lead_el.get_text(strip=True))
+        if not subtitle:
+            subtitle = rss.get("subtitle")
 
-        # Text — RTS has two article layouts:
-        # 1. Short-story format: div.short-story-body (first one is empty placeholder — skip it)
-        # 2. Full story format: div.story-wrapper with an unnamed div as body (~500w)
+        # Text — two RTS layouts:
+        # 1. Short-story: div.short-story-body (skip empty placeholder)
+        # 2. Full story: div.story-wrapper → biggest direct-child div
         content_el = None
         for candidate in soup.find_all("div", class_="short-story-body"):
             if len(candidate.get_text().split()) > 10:
@@ -85,7 +115,6 @@ class RtsScraper(BaseScraper):
         if not content_el:
             wrapper = soup.find("div", class_="story-wrapper")
             if wrapper:
-                # Find the biggest direct-child div — usually the unnamed article body
                 children = [d for d in wrapper.find_all("div", recursive=False)
                             if len(d.get_text().split()) > 50]
                 if children:
@@ -95,26 +124,20 @@ class RtsScraper(BaseScraper):
         text_raw = str(content_el) if content_el else ""
         text = cyrillic_to_latin(clean_text(content_el)) if content_el else ""
 
-        # Published timestamp — [class*='date'] SR_DATE format
-        published_at: Optional[datetime] = None
-        date_el = soup.find(class_=lambda c: c and "date" in c.lower())
-        if date_el:
-            published_at = parse_sr_date(cyrillic_to_latin(date_el.get_text(strip=True)))
-        if not published_at:
-            og_time = soup.find("meta", property="article:published_time")
-            if og_time and og_time.get("content"):
-                published_at = parse_sr_date(og_time["content"])
+        # Published timestamp — RSS is most reliable (article page uses custom format)
+        published_at: Optional[datetime] = rss.get("published_at")
 
-        # Category — [class*='section'], values in Cyrillic
+        # Category — HTML first, RSS fallback
         category: Optional[str] = None
         section_el = soup.find(class_=lambda c: c and "section" in c.lower())
         if section_el:
             category = cyrillic_to_latin(section_el.get_text(strip=True))
-        # Fallback: derive from URL pattern /vesti/KATEGORIJA/
         if not category:
             m = re.search(r"/vesti/([^/]+)/", url)
             if m:
                 category = m.group(1).replace("-", " ").title()
+        if not category:
+            category = rss.get("category")
 
         # Image
         image_url: Optional[str] = None
@@ -122,9 +145,11 @@ class RtsScraper(BaseScraper):
         if og_img and og_img.get("content"):
             image_url = og_img["content"]
         if not image_url:
-            img_el = soup.find("article") and soup.find("article").find("img")
-            if img_el:
-                image_url = img_el.get("src") or img_el.get("data-src")
+            article_el = soup.find("article")
+            if article_el:
+                img_el = article_el.find("img")
+                if img_el:
+                    image_url = img_el.get("src") or img_el.get("data-src")
 
         return ArticleData(
             url=url,
