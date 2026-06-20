@@ -9,7 +9,7 @@ from .analysis import (
 )
 from .coordination import (
     CoordinationCopypaste, CoordinationFraming, CoordinationNarrative,
-    Alert, Anomaly, OriginTracking, DailySummary,
+    Alert, Anomaly, OriginTracking, PeriodType, DailySummary,
 )
 from .userspace import Watchlist, WatchlistItem, SavedSearch
 
@@ -21,6 +21,6 @@ __all__ = [
     "Narrative", "NarrativeProposal", "ArticleNarrative", "NarrativeDailyIntensity",
     "CalibrationFeedback", "CalibrationPrompt", "ArticleEmbedding",
     "CoordinationCopypaste", "CoordinationFraming", "CoordinationNarrative",
-    "Alert", "Anomaly", "OriginTracking", "DailySummary",
+    "Alert", "Anomaly", "OriginTracking", "PeriodType", "DailySummary",
     "Watchlist", "WatchlistItem", "SavedSearch",
 ]

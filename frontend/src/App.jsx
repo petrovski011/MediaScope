@@ -12,6 +12,7 @@ import SourceDetail from './pages/SourceDetail'
 import Narratives from './pages/Narratives'
 import Topics from './pages/Topics'
 import Framing from './pages/Framing'
+import Anomalies from './pages/Anomalies'
 import Alerts from './pages/Alerts'
 import Admin from './pages/Admin'
 
@@ -49,6 +50,7 @@ export default function App() {
             <Route path="narratives" element={<Narratives />} />
             <Route path="topics" element={<Topics />} />
             <Route path="framing" element={<Framing />} />
+            <Route path="anomalies" element={<Anomalies />} />
             <Route path="alerts" element={<Alerts />} />
             <Route path="admin" element={<AdminGuard><Admin /></AdminGuard>} />
           </Route>

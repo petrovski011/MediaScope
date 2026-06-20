@@ -677,6 +677,170 @@ def detect_alerts():
     return result
 
 
+@celery.task(name="pipeline.tasks.detect_anomalies")
+def detect_anomalies():
+    """
+    Statisticka detekcija anomalija (rolling 7d/30d baseline). Pise u `anomalies`
+    + linkovan `alert` za visoka odstupanja. Dedup po (anomaly_type, topic/narrative, date).
+    Pokrece se dnevno ~08:15.
+
+    Detektori: topic_spike/drop, framing_shift, narrative_intensity, silence_anomaly.
+    """
+    logger.info("detect_anomalies: pocinje")
+
+    async def _run():
+        from datetime import date
+        pg = await asyncpg.connect(PG_DSN)
+        try:
+            today = date.today().isoformat()
+            created = 0
+
+            # aktivni period (izborni/krizni/miran) za kontekst
+            period = await pg.fetchval(
+                "SELECT period_type FROM period_types WHERE $1 BETWEEN date_from AND date_to ORDER BY id DESC LIMIT 1",
+                today,
+            )
+            period_note = f" [period: {period}]" if period else ""
+
+            async def _save_anomaly(atype, desc, topic=None, narrative_id=None, source_id=None,
+                                    baseline=None, detected=None, deviation=None, severity="medium"):
+                nonlocal created
+                exists = await pg.fetchval(
+                    """SELECT id FROM anomalies WHERE anomaly_type=$1 AND date=$2
+                       AND topic IS NOT DISTINCT FROM $3 AND narrative_id IS NOT DISTINCT FROM $4
+                       AND source_id IS NOT DISTINCT FROM $5 LIMIT 1""",
+                    atype, today, topic, narrative_id, source_id,
+                )
+                if exists:
+                    return
+                alert_id = None
+                if severity == "high":
+                    alert_exists = await pg.fetchval(
+                        "SELECT id FROM alerts WHERE alert_type=$1 AND date=$2 AND title=$3 LIMIT 1",
+                        "anomaly", today, desc[:200],
+                    )
+                    if not alert_exists:
+                        alert_id = await pg.fetchval(
+                            """INSERT INTO alerts (alert_type, severity, title, description, score, source_ids, date)
+                               VALUES ('anomaly', $1, $2, $3, $4, $5, $6) RETURNING id""",
+                            severity, desc[:200], desc + period_note,
+                            float(deviation) if deviation is not None else None,
+                            [source_id] if source_id else [], today,
+                        )
+                await pg.execute(
+                    """INSERT INTO anomalies (anomaly_type, description, source_id, topic, narrative_id,
+                          date, baseline_value, detected_value, deviation_pct, baseline_type, alert_id)
+                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'rolling_7d',$10)""",
+                    atype, desc + period_note, source_id, topic, narrative_id, today,
+                    baseline, detected, deviation, alert_id,
+                )
+                created += 1
+
+            # 1. topic_spike / topic_drop (danas vs 7d prosek)
+            topic_rows = await pg.fetch(
+                """
+                WITH daily AS (
+                    SELECT aa.primary_topic AS topic, DATE(a.published_at) AS d, COUNT(*) AS cnt
+                    FROM article_analysis aa JOIN articles a ON a.id=aa.article_id
+                    WHERE a.published_at >= NOW() - INTERVAL '8 days' AND aa.primary_topic IS NOT NULL
+                    GROUP BY aa.primary_topic, DATE(a.published_at)
+                ),
+                base AS (SELECT topic, AVG(cnt) avg_cnt FROM daily WHERE d < CURRENT_DATE GROUP BY topic),
+                tod AS (SELECT topic, cnt FROM daily WHERE d = CURRENT_DATE)
+                SELECT t.topic, t.cnt AS today_cnt, b.avg_cnt,
+                       (t.cnt/NULLIF(b.avg_cnt,0)) AS ratio
+                FROM tod t JOIN base b ON b.topic=t.topic
+                WHERE b.avg_cnt >= 3
+                """
+            )
+            for r in topic_rows:
+                ratio = float(r["ratio"]) if r["ratio"] else 0
+                dev = (ratio - 1) * 100
+                if ratio >= 2.5:
+                    await _save_anomaly("topic_spike",
+                        f"Topic spike: {r['topic']} {int(dev)}% iznad 7d proseka ({r['today_cnt']} vs {r['avg_cnt']:.1f})",
+                        topic=r["topic"], baseline=float(r["avg_cnt"]), detected=float(r["today_cnt"]),
+                        deviation=dev, severity="high" if ratio >= 3.5 else "medium")
+                elif ratio <= 0.34:
+                    await _save_anomaly("topic_drop",
+                        f"Topic drop: {r['topic']} {int(dev)}% ispod 7d proseka ({r['today_cnt']} vs {r['avg_cnt']:.1f})",
+                        topic=r["topic"], baseline=float(r["avg_cnt"]), detected=float(r["today_cnt"]),
+                        deviation=dev, severity="medium")
+
+            # 2. framing_shift — dominantni framing za temu menja udeo > 30pp danas vs 7d
+            fr_rows = await pg.fetch(
+                """
+                WITH today_fr AS (
+                    SELECT aa.primary_topic AS topic, ft.name AS framing, COUNT(*)::float AS cnt
+                    FROM article_framings af JOIN framing_types ft ON ft.id=af.framing_type_id
+                    JOIN articles a ON a.id=af.article_id
+                    JOIN article_analysis aa ON aa.article_id=a.id
+                    WHERE DATE(a.published_at)=CURRENT_DATE AND aa.primary_topic IS NOT NULL
+                    GROUP BY aa.primary_topic, ft.name
+                ),
+                today_tot AS (SELECT topic, SUM(cnt) tot FROM today_fr GROUP BY topic),
+                base_fr AS (
+                    SELECT aa.primary_topic AS topic, ft.name AS framing, COUNT(*)::float AS cnt
+                    FROM article_framings af JOIN framing_types ft ON ft.id=af.framing_type_id
+                    JOIN articles a ON a.id=af.article_id
+                    JOIN article_analysis aa ON aa.article_id=a.id
+                    WHERE a.published_at >= NOW() - INTERVAL '8 days' AND a.published_at < CURRENT_DATE
+                      AND aa.primary_topic IS NOT NULL
+                    GROUP BY aa.primary_topic, ft.name
+                ),
+                base_tot AS (SELECT topic, SUM(cnt) tot FROM base_fr GROUP BY topic)
+                SELECT tf.topic, tf.framing,
+                       (tf.cnt/NULLIF(tt.tot,0)) AS today_share,
+                       COALESCE(bf.cnt/NULLIF(bt.tot,0),0) AS base_share,
+                       tt.tot AS today_total
+                FROM today_fr tf JOIN today_tot tt ON tt.topic=tf.topic
+                LEFT JOIN base_fr bf ON bf.topic=tf.topic AND bf.framing=tf.framing
+                LEFT JOIN base_tot bt ON bt.topic=tf.topic
+                WHERE tt.tot >= 4
+                """
+            )
+            for r in fr_rows:
+                shift = (float(r["today_share"]) - float(r["base_share"])) * 100
+                if shift >= 30:
+                    await _save_anomaly("framing_shift",
+                        f"Framing shift: '{r['framing']}' za temu {r['topic']} porastao {int(shift)}pp danas",
+                        topic=r["topic"], baseline=round(float(r["base_share"]), 3),
+                        detected=round(float(r["today_share"]), 3), deviation=shift, severity="medium")
+
+            # 3. narrative_intensity — danasnji intenzitet > 150% 7d proseka
+            ni_rows = await pg.fetch(
+                """
+                WITH agg AS (
+                    SELECT narrative_id, date, SUM(intensity_score) AS day_int
+                    FROM narrative_daily_intensity
+                    WHERE date::date >= CURRENT_DATE - 8
+                    GROUP BY narrative_id, date
+                ),
+                base AS (SELECT narrative_id, AVG(day_int) avg_int FROM agg WHERE date::date < CURRENT_DATE GROUP BY narrative_id),
+                tod AS (SELECT narrative_id, day_int FROM agg WHERE date::date = CURRENT_DATE)
+                SELECT t.narrative_id, t.day_int, b.avg_int, n.name
+                FROM tod t JOIN base b ON b.narrative_id=t.narrative_id
+                JOIN narratives n ON n.id=t.narrative_id
+                WHERE b.avg_int > 0 AND t.day_int/NULLIF(b.avg_int,0) >= 1.5
+                """
+            )
+            for r in ni_rows:
+                dev = (float(r["day_int"]) / float(r["avg_int"]) - 1) * 100
+                await _save_anomaly("narrative_intensity",
+                    f"Narativ '{r['name']}' intenzitet {int(dev)}% iznad 7d proseka",
+                    narrative_id=r["narrative_id"], baseline=round(float(r["avg_int"]), 2),
+                    detected=round(float(r["day_int"]), 2), deviation=dev,
+                    severity="high" if dev >= 200 else "medium")
+
+            return {"anomalies_created": created, "period": period}
+        finally:
+            await pg.close()
+
+    result = _run_async(_run())
+    logger.info("detect_anomalies zavrsen: %s", result)
+    return result
+
+
 @celery.task(name="pipeline.tasks.compute_narrative_matching")
 def compute_narrative_matching():
     """

@@ -99,6 +99,19 @@ class OriginTracking(Base):
     detected_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
+class PeriodType(Base):
+    """Istrazivac oznacava periode (izborni/krizni/miran) radi kontekstualizacije anomalija."""
+    __tablename__ = "period_types"
+
+    id = Column(Integer, primary_key=True)
+    date_from = Column(String(10), nullable=False)
+    date_to = Column(String(10), nullable=False)
+    period_type = Column(String(20), nullable=False)  # electoral, crisis, calm
+    note = Column(Text)
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
 class DailySummary(Base):
     __tablename__ = "daily_summaries"
 
