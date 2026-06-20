@@ -1,8 +1,10 @@
 """
-Promptovi za AI pipeline MVP.
-MVP obuhvata: NER + Tematska klasifikacija + Politicko pozicioniranje
-kombinovano u jedan poziv po clanku.
+Promptovi za AI pipeline.
+Obuhvata: NER + Tematska klasifikacija + Politicko pozicioniranje + Sentiment
++ TEMATSKI SPECIFICAN framing (katalog se injektuje iz baze).
+Kombinovano u jedan poziv po clanku (one-pass hybrid).
 """
+from typing import Optional
 
 SYSTEM_PROMPT = """Ti si analiticar medijskog sadrzaja za SHARE Fondaciju, istrazivacku organizaciju
 koja prati narative i propagandu u srpskim medijima.
@@ -22,6 +24,52 @@ Tvoj zadatak je objektivna analiza - ne interpretiras politicke stavove,
 vec identifikujes kako mediji izvestavaju i koje narative plasiraju.
 
 Uvek vraci SAMO validan JSON. Nikada ne dodavaj objasnjenja van JSON strukture."""
+
+
+def build_framing_catalog_text(framing_rows: list[dict]) -> str:
+    """Gradi tekst kataloga framing okvira iz baze.
+
+    framing_rows: lista dict-ova {name, description, topic_key} gde je topic_key None za globalne.
+    Metodologija: globalni okviri vaze za sve teme; tematski SAMO za svoju temu.
+    """
+    global_frames = [r for r in framing_rows if not r.get("topic_key")]
+    by_topic: dict[str, list[dict]] = {}
+    for r in framing_rows:
+        if r.get("topic_key"):
+            by_topic.setdefault(r["topic_key"], []).append(r)
+
+    lines = ["KATALOG FRAMING OKVIRA — koristi ISKLJUCIVO okvire navedene ovde.\n"]
+    lines.append("GLOBALNI OKVIRI (primenljivi na svaku temu):")
+    for r in global_frames:
+        lines.append(f"- {r['name']}: {r['description']}")
+
+    if by_topic:
+        lines.append("\nTEMATSKI OKVIRI (koristi SAMO ako primarna tema clanka odgovara temi okvira):")
+        for topic_key in sorted(by_topic):
+            lines.append(f"[{topic_key}]")
+            for r in by_topic[topic_key]:
+                lines.append(f"- {r['name']}: {r['description']}")
+
+    return "\n".join(lines)
+
+
+def build_system(framing_catalog_text: Optional[str] = None, enable_caching: bool = True):
+    """Vraca `system` vrednost za Anthropic poziv.
+
+    Bez kataloga: obican string (SYSTEM_PROMPT).
+    Sa katalogom: lista blokova [bazni prompt, katalog] sa cache_control na katalogu
+    (identican kroz ceo batch -> kesira se jednom, cita 1500x).
+    """
+    if not framing_catalog_text:
+        return SYSTEM_PROMPT
+
+    catalog_block = {"type": "text", "text": framing_catalog_text}
+    if enable_caching:
+        catalog_block["cache_control"] = {"type": "ephemeral"}
+    return [
+        {"type": "text", "text": SYSTEM_PROMPT},
+        catalog_block,
+    ]
 
 
 def build_mvp_prompt(article: dict) -> str:
@@ -79,15 +127,16 @@ Uzmi u obzir: izbor reci, citiranje izvora, selekciju cinjenica, naslove i emoti
 Za svaki skor dodaj kratko obrazlozenje (1-2 recenice na srpskom latinici, konkretni signali iz teksta,
 ne ponavljaj skor kao broj — objasni ZASTO).
 
-## 4. Narativni okvir (framing)
-Prepoznaj do 2 narativna okvira koji su JASNO prisutni u clanku (ne pretpostavljaj):
-- "threat_frame" — tematizuje opasnost, krizu, napad na Srbiju ili institucije
-- "conflict_frame" — suprotstavlja aktere (vlast vs opozicija, Srbija vs Zapad)
-- "victim_frame" — neko trpi posledice tudjih odluka ili nepravde
-- "progress_frame" — istice uspehe, reforme, razvoj, pobede
-- "morality_frame" — eticki sud, patriotizam, tradicija, duznost
-
-Ako nijedan okvir nije dovoljno izrazit (confidence < 0.5), vrati praznu listu.
+## 4. Framing (narativni okvir) — TEMATSKI SPECIFICAN
+Pogledaj KATALOG FRAMING OKVIRA u sistemskim instrukcijama. Za framing vazi:
+- Uvek su dostupni GLOBALNI okviri.
+- TEMATSKI okviri se koriste SAMO ako odgovaraju primarnoj temi koju si odredio (npr. tematski
+  okviri za KOSOVO se NE koriste ako je clanak o PROTEST-u).
+- Prepoznaj sve okvire koji su JASNO prisutni (ne pretpostavljaj). Za svaki: tacan naziv iz kataloga,
+  confidence (0.0-1.0) i kratak citat iz clanka (supporting_text).
+- Ako je okvir JASNO prisutan ali NIJE u katalogu, predlozi nov u "new_framing_proposals"
+  (naziv u stilu "..._frame", opis, citat). Ne izmisljaj okvire bez osnova.
+- Ako nijedan okvir nije izrazit, vrati praznu listu.
 
 Vrati ISKLJUCIVO ovaj JSON (bez ikakvih objasnjenja van JSON-a):
 {{
@@ -115,8 +164,11 @@ Vrati ISKLJUCIVO ovaj JSON (bez ikakvih objasnjenja van JSON-a):
   "sentiment": "negative",
   "sentiment_score": -0.55,
   "framings": [
-    {{"framing_type": "conflict_frame", "confidence": 0.82, "supporting_text": "...citat iz clanka..."}},
-    {{"framing_type": "threat_frame", "confidence": 0.61, "supporting_text": "...citat iz clanka..."}}
+    {{"framing_type": "uslovljavanje_frame", "confidence": 0.82, "supporting_text": "...citat iz clanka..."}},
+    {{"framing_type": "conflict_frame", "confidence": 0.61, "supporting_text": "...citat iz clanka..."}}
+  ],
+  "new_framing_proposals": [
+    {{"name": "novi_okvir_frame", "description": "Kratak opis okvira", "supporting_text": "...citat..."}}
   ],
   "analysis_confidence": 0.88
 }}"""

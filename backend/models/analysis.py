@@ -87,15 +87,42 @@ class ArticleEntity(Base):
     __table_args__ = (UniqueConstraint("article_id", "entity_id"),)
 
 
+class Topic(Base):
+    __tablename__ = "topics"
+
+    id = Column(Integer, primary_key=True)
+    key = Column(String(50), nullable=False, unique=True)  # npr. PROTEST, KOSOVO
+    label_sr = Column(String(200), nullable=False)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class FramingType(Base):
     __tablename__ = "framing_types"
 
     id = Column(Integer, primary_key=True)
     name = Column(String(200), nullable=False)
-    topic_id = Column(Integer)
+    topic_id = Column(Integer, ForeignKey("topics.id"))  # NULL = globalni framing
     description = Column(Text)
     created_by = Column(Integer, ForeignKey("users.id"))
     is_validated = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class FramingTypeProposal(Base):
+    """AI predlog novog framing tipa — staging dok ga istrazivac ne validira."""
+    __tablename__ = "framing_type_proposals"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(200), nullable=False)
+    topic_id = Column(Integer, ForeignKey("topics.id"))
+    description = Column(Text)
+    supporting_text = Column(Text)
+    article_id = Column(BigInteger, ForeignKey("articles.id"))
+    status = Column(String(20), nullable=False, default="pending")  # pending, approved, rejected
+    occurrences = Column(Integer, default=1)
+    reviewed_by = Column(Integer, ForeignKey("users.id"))
+    reviewed_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 

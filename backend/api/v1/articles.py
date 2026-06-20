@@ -10,7 +10,7 @@ from models.articles import Article
 from models.sources import Source
 from models.analysis import (
     ArticleAnalysis, ArticleEntity, Entity,
-    ArticleFraming, FramingType, ArticleNarrative, Narrative,
+    ArticleFraming, FramingType, Topic, ArticleNarrative, Narrative,
     CalibrationFeedback,
 )
 from api.deps import get_current_user, require_role, PaginationParams
@@ -162,8 +162,9 @@ async def get_article(
     )).all()
 
     framings = (await db.execute(
-        select(ArticleFraming, FramingType)
+        select(ArticleFraming, FramingType, Topic.key)
         .join(FramingType, ArticleFraming.framing_type_id == FramingType.id)
+        .outerjoin(Topic, Topic.id == FramingType.topic_id)
         .where(ArticleFraming.article_id == article_id)
     )).all()
 
@@ -224,10 +225,12 @@ async def get_article(
             {
                 "framing_type_id": f.framing_type_id,
                 "framing_name": ft.name,
+                "framing_description": ft.description,
+                "topic_key": topic_key,  # None = globalni okvir
                 "confidence": f.confidence,
                 "supporting_text": f.supporting_text,
             }
-            for f, ft in framings
+            for f, ft, topic_key in framings
         ],
         "narratives": [
             {

@@ -10,7 +10,7 @@ from typing import Optional
 import anthropic
 
 from config import settings
-from pipeline.prompts import SYSTEM_PROMPT, build_mvp_prompt
+from pipeline.prompts import SYSTEM_PROMPT, build_mvp_prompt, build_system
 
 logger = logging.getLogger(__name__)
 
@@ -33,14 +33,17 @@ def _make_client() -> anthropic.Anthropic:
     return anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
 
-def submit_analysis_batch(articles: list[dict]) -> str:
+def submit_analysis_batch(articles: list[dict], system=None) -> str:
     """
     Submituje batch AI analize za listu pripremljenih clanaka.
     articles: lista dict-ova iz pipeline.prepare.prepare_article()
+    system: Anthropic `system` vrednost (string ili lista blokova sa cache_control).
+            Ako je None, koristi se osnovni SYSTEM_PROMPT (bez framing kataloga).
 
     Vraca batch_id koji se cuva za kasniji retrieval rezultata.
     """
     client = _make_client()
+    system_val = system if system is not None else SYSTEM_PROMPT
 
     requests = [
         {
@@ -48,7 +51,7 @@ def submit_analysis_batch(articles: list[dict]) -> str:
             "params": {
                 "model": settings.ANTHROPIC_MODEL,
                 "max_tokens": MAX_TOKENS_PER_REQUEST,
-                "system": SYSTEM_PROMPT,
+                "system": system_val,
                 "messages": [{"role": "user", "content": build_mvp_prompt(article)}],
             },
         }

@@ -51,7 +51,8 @@ async def _process(pg: asyncpg.Connection, batch_results: list[tuple]) -> dict:
             metrics["entities_created"] += entity_stats["created"]
             metrics["entities_linked"] += entity_stats["linked"]
 
-            await _save_framings(pg, article_id, parsed.get("framings", []))
+            await _save_framings(pg, article_id, parsed.get("primary_topic"), parsed.get("framings", []))
+            await _save_framing_proposals(pg, article_id, parsed.get("primary_topic"), parsed.get("new_framing_proposals", []))
 
         except Exception as e:
             logger.exception("Greska pri upisu article %d: %s", article_id, e)
@@ -181,21 +182,47 @@ async def _save_entities(
     return {"created": created, "linked": linked}
 
 
+async def _topic_id_for_key(pg: asyncpg.Connection, topic_key: Optional[str]) -> Optional[int]:
+    if not topic_key:
+        return None
+    # primary_topic moze biti "NOVA_TEMA: NESTO" — uzmi samo kanonski kljuc
+    key = topic_key.strip()
+    if key.upper().startswith("NOVA_TEMA"):
+        return None
+    return await pg.fetchval("SELECT id FROM topics WHERE key = $1", key)
+
+
 async def _save_framings(
-    pg: asyncpg.Connection, article_id: int, framings: list[dict]
+    pg: asyncpg.Connection, article_id: int, primary_topic: Optional[str], framings: list[dict]
 ) -> None:
-    for f in framings[:3]:
+    """Upisuje framinge resolucijom po (name, topic_id).
+
+    Globalni okviri (topic_id NULL) vaze uvek; tematski okviri se vezuju za temu clanka.
+    """
+    topic_id = await _topic_id_for_key(pg, primary_topic)
+
+    for f in framings[: settings.MAX_FRAMINGS_PER_ARTICLE]:
         framing_type = (f.get("framing_type") or "").strip()
         confidence = f.get("confidence")
         supporting_text = (f.get("supporting_text") or "")[:500] or None
         if not framing_type or confidence is None:
             continue
 
-        type_id = await pg.fetchval(
-            "SELECT id FROM framing_types WHERE name = $1", framing_type
-        )
-        if not type_id:
-            logger.debug("Nepoznat framing_type: %s", framing_type)
+        # Prvo probaj tematski okvir za temu clanka, pa globalni (topic_id NULL).
+        type_id = None
+        if topic_id is not None:
+            type_id = await pg.fetchval(
+                "SELECT id FROM framing_types WHERE name = $1 AND topic_id = $2",
+                framing_type, topic_id,
+            )
+        if type_id is None:
+            type_id = await pg.fetchval(
+                "SELECT id FROM framing_types WHERE name = $1 AND topic_id IS NULL",
+                framing_type,
+            )
+        if type_id is None:
+            # Naziv postoji ali za drugu temu — preskoci (metodologija: tematski je striktan)
+            logger.debug("Framing '%s' nije validan za temu '%s'", framing_type, primary_topic)
             continue
 
         try:
@@ -211,3 +238,51 @@ async def _save_framings(
             )
         except Exception as e:
             logger.warning("Greska pri upisu framinga %s za article %d: %s", framing_type, article_id, e)
+
+
+async def _save_framing_proposals(
+    pg: asyncpg.Connection, article_id: int, primary_topic: Optional[str], proposals: list[dict]
+) -> None:
+    """Hvata AI predloge novih framing okvira u staging (framing_type_proposals).
+
+    Ako vec postoji pending predlog istog imena/teme — inkrementira occurrences.
+    """
+    topic_id = await _topic_id_for_key(pg, primary_topic)
+
+    for p in (proposals or [])[:3]:
+        name = (p.get("name") or "").strip()
+        if not name:
+            continue
+        description = (p.get("description") or "")[:500] or None
+        supporting_text = (p.get("supporting_text") or "")[:500] or None
+
+        # Ako okvir vec postoji u framing_types (globalni ili za istu temu) — nije predlog.
+        exists = await pg.fetchval(
+            "SELECT 1 FROM framing_types WHERE name = $1 AND (topic_id = $2 OR topic_id IS NULL) LIMIT 1",
+            name, topic_id,
+        )
+        if exists:
+            continue
+
+        try:
+            updated = await pg.fetchval(
+                """
+                UPDATE framing_type_proposals
+                SET occurrences = occurrences + 1
+                WHERE name = $1 AND status = 'pending'
+                  AND topic_id IS NOT DISTINCT FROM $2
+                RETURNING id
+                """,
+                name, topic_id,
+            )
+            if updated is None:
+                await pg.execute(
+                    """
+                    INSERT INTO framing_type_proposals
+                        (name, topic_id, description, supporting_text, article_id, status)
+                    VALUES ($1, $2, $3, $4, $5, 'pending')
+                    """,
+                    name, topic_id, description, supporting_text, article_id,
+                )
+        except Exception as e:
+            logger.warning("Greska pri upisu framing predloga %s: %s", name, e)

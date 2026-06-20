@@ -182,9 +182,18 @@ export default function ArticleDetail() {
               <div className="space-y-2">
                 {a.framings.map((f, i) => (
                   <div key={i} className="space-y-1">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm" style={{ color: 'var(--text-primary)' }}>
-                        {FRAMING_LABELS[f.framing_name] || f.framing_name}
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
+                        {FRAMING_LABELS[f.framing_name] || f.framing_description || f.framing_name}
+                        {f.topic_key ? (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--accent)', color: 'white' }}>
+                            {TOPIC_LABELS[f.topic_key] || f.topic_key}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}>
+                            globalni
+                          </span>
+                        )}
                       </span>
                       <span className="text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>
                         {Math.round((f.confidence || 0) * 100)}%

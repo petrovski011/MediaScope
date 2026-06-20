@@ -3,7 +3,7 @@ from .sources import Source
 from .articles import Article, ArticleVersion, ScraperRun
 from .analysis import (
     ArticleAnalysis, Entity, ArticleEntity,
-    FramingType, ArticleFraming,
+    Topic, FramingType, FramingTypeProposal, ArticleFraming,
     Narrative, ArticleNarrative, NarrativeDailyIntensity,
     CalibrationFeedback, CalibrationPrompt, ArticleEmbedding,
 )
@@ -17,7 +17,7 @@ __all__ = [
     "User", "Source",
     "Article", "ArticleVersion", "ScraperRun",
     "ArticleAnalysis", "Entity", "ArticleEntity",
-    "FramingType", "ArticleFraming",
+    "Topic", "FramingType", "FramingTypeProposal", "ArticleFraming",
     "Narrative", "ArticleNarrative", "NarrativeDailyIntensity",
     "CalibrationFeedback", "CalibrationPrompt", "ArticleEmbedding",
     "CoordinationCopypaste", "CoordinationFraming", "CoordinationNarrative",

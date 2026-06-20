@@ -42,6 +42,39 @@ def _run_async(coro):
     return asyncio.get_event_loop().run_until_complete(coro)
 
 
+async def _load_framing_catalog_text() -> str:
+    """Ucitava validirane framing okvire iz baze i gradi katalog tekst za prompt.
+
+    Vraca prazan string ako nema okvira (tada se koristi osnovni SYSTEM_PROMPT).
+    """
+    from pipeline.prompts import build_framing_catalog_text
+
+    pg = await asyncpg.connect(PG_DSN)
+    try:
+        rows = await pg.fetch(
+            """
+            SELECT ft.name, ft.description, t.key AS topic_key
+            FROM framing_types ft
+            LEFT JOIN topics t ON t.id = ft.topic_id
+            WHERE ft.is_validated = TRUE
+            ORDER BY t.key NULLS FIRST, ft.name
+            """
+        )
+        if not rows:
+            return ""
+        return build_framing_catalog_text([dict(r) for r in rows])
+    finally:
+        await pg.close()
+
+
+def _build_analysis_system():
+    """Sklapa `system` (sa framing katalogom + cache_control) za analizni poziv."""
+    from pipeline.prompts import build_system
+
+    catalog = _run_async(_load_framing_catalog_text())
+    return build_system(catalog or None, enable_caching=settings.ENABLE_PROMPT_CACHING)
+
+
 async def _batch_log_submit(batch_id: str, batch_type: str, batch_date: str, article_count: int):
     pg = await asyncpg.connect(PG_DSN)
     try:
@@ -159,7 +192,7 @@ def submit_nightly_batch(self, target_date_str: str = None):
     logger.info("Submitujemo %d clanaka za %s Anthropic Batch API-ju", len(articles), target)
 
     try:
-        batch_id = submit_analysis_batch(articles)
+        batch_id = submit_analysis_batch(articles, system=_build_analysis_system())
     except Exception as exc:
         logger.exception("Greska pri submitu batch-a: %s", exc)
         raise self.retry(exc=exc, countdown=300)
@@ -204,7 +237,7 @@ def submit_catchup_batches(self):
     logger.info("Catch-up: submitujemo %d clanaka", len(articles))
 
     try:
-        batch_id = submit_analysis_batch(articles)
+        batch_id = submit_analysis_batch(articles, system=_build_analysis_system())
     except Exception as exc:
         logger.exception("Greska pri catch-up batch-u: %s", exc)
         raise self.retry(exc=exc, countdown=300)
@@ -276,10 +309,12 @@ def run_batch_for_articles(article_ids: list[int]):
     import anthropic
     import json
 
-    from pipeline.prompts import SYSTEM_PROMPT, build_mvp_prompt
+    from pipeline.prompts import build_mvp_prompt
 
     if not settings.ANTHROPIC_API_KEY:
         return {"status": "error", "reason": "no_api_key"}
+
+    system_val = _build_analysis_system()
 
     async def fetch_articles(ids):
         pg = await asyncpg.connect(PG_DSN)
@@ -305,8 +340,8 @@ def run_batch_for_articles(article_ids: list[int]):
         try:
             msg = client.messages.create(
                 model=settings.ANTHROPIC_MODEL,
-                max_tokens=2000,
-                system=SYSTEM_PROMPT,
+                max_tokens=2500,
+                system=system_val,
                 messages=[{"role": "user", "content": build_mvp_prompt(article)}],
             )
             raw_text = msg.content[0].text
