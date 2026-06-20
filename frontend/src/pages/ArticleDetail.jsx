@@ -1,7 +1,51 @@
+import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, ExternalLink, User, Building2, MapPin, Copy } from 'lucide-react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { ArrowLeft, ExternalLink, User, Building2, MapPin, Copy, StickyNote, Trash2 } from 'lucide-react'
 import api from '../lib/api'
+
+function AnnotationsPanel({ articleId }) {
+  const qc = useQueryClient()
+  const [text, setText] = useState('')
+  const { data } = useQuery({
+    queryKey: ['annotations', articleId],
+    queryFn: () => api.get(`/articles/${articleId}/annotations`).then(r => r.data.annotations),
+  })
+  const add = useMutation({
+    mutationFn: () => api.post(`/articles/${articleId}/annotations`, { body: text.trim() }),
+    onSuccess: () => { qc.invalidateQueries(['annotations', articleId]); setText('') },
+  })
+  const del = useMutation({
+    mutationFn: (id) => api.delete(`/annotations/${id}`),
+    onSuccess: () => qc.invalidateQueries(['annotations', articleId]),
+  })
+  const notes = data || []
+  return (
+    <div className="rounded-xl p-4 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+      <h2 className="text-xs font-medium mb-3 uppercase tracking-wider flex items-center gap-1.5" style={{ color: 'var(--text-muted)' }}>
+        <StickyNote size={12} /> Beleške
+      </h2>
+      <div className="space-y-2 mb-3">
+        {notes.map(n => (
+          <div key={n.id} className="flex items-start justify-between gap-2 text-xs rounded p-2" style={{ background: 'var(--bg-elevated)' }}>
+            <span style={{ color: 'var(--text-secondary)' }}>{n.body}</span>
+            <button onClick={() => del.mutate(n.id)} className="shrink-0"><Trash2 size={11} style={{ color: 'var(--text-muted)' }} /></button>
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <input value={text} onChange={e => setText(e.target.value)} placeholder="Dodaj belešku…"
+          onKeyDown={e => { if (e.key === 'Enter' && text.trim()) add.mutate() }}
+          className="flex-1 px-2 py-1.5 rounded text-xs border outline-none"
+          style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
+        <button onClick={() => add.mutate()} disabled={!text.trim() || add.isPending}
+          className="px-3 py-1.5 rounded text-xs font-medium disabled:opacity-50" style={{ background: 'var(--accent)', color: 'white' }}>
+          Dodaj
+        </button>
+      </div>
+    </div>
+  )
+}
 
 function SimilarArticles({ articleId }) {
   const navigate = useNavigate()
@@ -207,6 +251,8 @@ export default function ArticleDetail() {
               </div>
             </div>
           )}
+
+          <AnnotationsPanel articleId={id} />
         </div>
 
         {/* Desna kolona — analiza */}

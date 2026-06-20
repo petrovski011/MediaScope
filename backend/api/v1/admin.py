@@ -323,3 +323,38 @@ async def run_calibration(current_user=_require_admin):
     from pipeline.tasks import apply_calibration_feedback
     apply_calibration_feedback.delay()
     return {"status": "queued"}
+
+
+class ReanalyzeRequest(BaseModel):
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    source_id: Optional[str] = None
+    limit: int = 500
+
+
+@router.post("/reanalyze")
+async def reanalyze(
+    req: ReanalyzeRequest,
+    current_user=_require_admin,
+    db: AsyncSession = Depends(get_db),
+):
+    """Re-analiza vec analiziranih clanaka za opseg (datum/izvor) pod tekucim promptom."""
+    from sqlalchemy import text as _text
+    conds = ["aa.id IS NOT NULL"]
+    params = {"limit": min(req.limit, 2000)}
+    if req.date_from:
+        conds.append("a.published_at >= :date_from"); params["date_from"] = req.date_from
+    if req.date_to:
+        conds.append("a.published_at <= :date_to"); params["date_to"] = req.date_to
+    if req.source_id:
+        conds.append("a.source_id = :source_id"); params["source_id"] = req.source_id
+    where = " AND ".join(conds)
+    rows = (await db.execute(_text(
+        f"SELECT a.id FROM articles a JOIN article_analysis aa ON aa.article_id=a.id "
+        f"WHERE {where} ORDER BY a.published_at DESC LIMIT :limit"
+    ), params)).all()
+    ids = [r.id for r in rows]
+    if ids:
+        from pipeline.tasks import run_batch_for_articles
+        run_batch_for_articles.delay(ids)
+    return {"status": "queued", "article_count": len(ids)}

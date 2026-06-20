@@ -11,7 +11,7 @@ from .coordination import (
     CoordinationCopypaste, CoordinationFraming, CoordinationNarrative,
     Alert, Anomaly, OriginTracking, PeriodType, DailySummary,
 )
-from .userspace import Watchlist, WatchlistItem, SavedSearch
+from .userspace import Watchlist, WatchlistItem, SavedSearch, Annotation
 
 __all__ = [
     "User", "Source",
@@ -22,5 +22,5 @@ __all__ = [
     "CalibrationFeedback", "CalibrationPrompt", "ArticleEmbedding",
     "CoordinationCopypaste", "CoordinationFraming", "CoordinationNarrative",
     "Alert", "Anomaly", "OriginTracking", "PeriodType", "DailySummary",
-    "Watchlist", "WatchlistItem", "SavedSearch",
+    "Watchlist", "WatchlistItem", "SavedSearch", "Annotation",
 ]

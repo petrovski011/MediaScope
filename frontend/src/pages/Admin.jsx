@@ -267,6 +267,46 @@ function CalibrationPanel() {
   )
 }
 
+function ReanalyzePanel() {
+  const [form, setForm] = useState({ date_from: '', date_to: '', source_id: '' })
+  const [msg, setMsg] = useState('')
+  const run = useMutation({
+    mutationFn: () => api.post('/admin/reanalyze', {
+      date_from: form.date_from || null, date_to: form.date_to || null,
+      source_id: form.source_id || null,
+    }).then(r => r.data),
+    onSuccess: (d) => setMsg(`Zakazano: ${d.article_count} članaka u re-analizu`),
+  })
+  const inputStyle = { background: 'var(--bg-elevated)', borderColor: 'var(--border)', color: 'var(--text-primary)' }
+  return (
+    <section className="mb-8">
+      <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>Re-analiza članaka</h2>
+      <div className="rounded-xl border p-4 flex flex-wrap items-end gap-3" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+        <div>
+          <label className="text-xs block mb-1" style={{ color: 'var(--text-muted)' }}>Od datuma</label>
+          <input type="date" value={form.date_from} onChange={e => setForm(f => ({ ...f, date_from: e.target.value }))} className="px-2 py-1.5 rounded text-xs border" style={inputStyle} />
+        </div>
+        <div>
+          <label className="text-xs block mb-1" style={{ color: 'var(--text-muted)' }}>Do datuma</label>
+          <input type="date" value={form.date_to} onChange={e => setForm(f => ({ ...f, date_to: e.target.value }))} className="px-2 py-1.5 rounded text-xs border" style={inputStyle} />
+        </div>
+        <div>
+          <label className="text-xs block mb-1" style={{ color: 'var(--text-muted)' }}>Izvor (opciono)</label>
+          <input value={form.source_id} onChange={e => setForm(f => ({ ...f, source_id: e.target.value }))} placeholder="npr. informer" className="px-2 py-1.5 rounded text-xs border w-32" style={inputStyle} />
+        </div>
+        <button onClick={() => run.mutate()} disabled={run.isPending}
+          className="px-3 py-1.5 rounded-md text-sm font-medium disabled:opacity-50" style={{ background: 'var(--accent)', color: 'white' }}>
+          {run.isPending ? 'Pokrećem…' : 'Re-analiziraj'}
+        </button>
+        {msg && <span className="text-xs" style={{ color: '#22c55e' }}>{msg}</span>}
+      </div>
+      <p className="text-xs mt-1.5" style={{ color: 'var(--text-muted)' }}>
+        Ponovo analizira već analizirane članke pod tekućim promptom (npr. nakon kalibracije ili novih framing/narativ definicija).
+      </p>
+    </section>
+  )
+}
+
 export default function Admin() {
   const qc = useQueryClient()
   const [editUser, setEditUser] = useState(null)
@@ -357,6 +397,7 @@ export default function Admin() {
       </section>
 
       <CalibrationPanel />
+      <ReanalyzePanel />
 
       {/* Korisnici */}
       <section className="mb-8">

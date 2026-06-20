@@ -41,3 +41,14 @@ class SavedSearch(Base):
     query_params = Column(JSON, nullable=False)
     last_run = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class Annotation(Base):
+    """Beleska istrazivaca na clanku."""
+    __tablename__ = "annotations"
+
+    id = Column(BigInteger, primary_key=True)
+    article_id = Column(BigInteger, ForeignKey("articles.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    body = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
