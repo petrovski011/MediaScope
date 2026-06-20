@@ -3,10 +3,7 @@ from sqlalchemy import engine_from_config, pool
 from alembic import context
 
 from config import settings
-import models.users  # noqa — registruje modele u Base.metadata
-import models.sources
-import models.articles
-import models.analysis
+import models  # noqa — registruje SVE modele u Base.metadata (vidi models/__init__.py)
 from database import Base
 
 config = context.config

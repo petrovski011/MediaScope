@@ -364,35 +364,41 @@ def detect_alerts():
                 )
                 alerts_created += 1
 
-            # 1. Koordinacioni alert — kopirani clanci (similarity >= 0.85, 5+ izvora)
-            copy_groups = await pg.fetch(
-                """
-                SELECT
-                    similarity_group,
-                    COUNT(DISTINCT a.source_id) AS source_count,
-                    MAX(cs.similarity_score) AS max_score,
-                    ARRAY_AGG(DISTINCT a.source_id) AS sources,
-                    MAX(a.title) AS sample_title
-                FROM copy_similarity cs
-                JOIN articles a ON a.id = cs.article_id
-                WHERE cs.similarity_score >= 0.85
-                  AND a.published_at >= NOW() - INTERVAL '24 hours'
-                GROUP BY similarity_group
-                HAVING COUNT(DISTINCT a.source_id) >= 4
-                ORDER BY source_count DESC
-                LIMIT 5
-                """,
-            )
-            for g in copy_groups:
-                await _create_alert(
-                    "coordination_copy",
-                    "high" if g["source_count"] >= 6 else "medium",
-                    f"Koordinisano kopiranje: {g['source_count']} portala",
-                    f"Identičan ili gotovo identičan tekst detektovan na {g['source_count']} portala. "
-                    f"Primer naslova: {g['sample_title'][:200]}",
-                    score=g["max_score"],
-                    source_ids=list(g["sources"]),
+            # 1. Koordinacioni alert — kopirani clanci (similarity >= 0.85, 4+ izvora)
+            # NAPOMENA (Faza 0): tabela copy_similarity ne postoji u shemi — ova detekcija
+            # je privremeno zasticena try/except-om i bice preusmerena na coordination_copypaste
+            # u Fazi 3 (pravi embedding-based copy-paste). Do tada ne sme da obori ceo task.
+            try:
+                copy_groups = await pg.fetch(
+                    """
+                    SELECT
+                        similarity_group,
+                        COUNT(DISTINCT a.source_id) AS source_count,
+                        MAX(cs.similarity_score) AS max_score,
+                        ARRAY_AGG(DISTINCT a.source_id) AS sources,
+                        MAX(a.title) AS sample_title
+                    FROM copy_similarity cs
+                    JOIN articles a ON a.id = cs.article_id
+                    WHERE cs.similarity_score >= 0.85
+                      AND a.published_at >= NOW() - INTERVAL '24 hours'
+                    GROUP BY similarity_group
+                    HAVING COUNT(DISTINCT a.source_id) >= 4
+                    ORDER BY source_count DESC
+                    LIMIT 5
+                    """,
                 )
+                for g in copy_groups:
+                    await _create_alert(
+                        "coordination_copy",
+                        "high" if g["source_count"] >= 6 else "medium",
+                        f"Koordinisano kopiranje: {g['source_count']} portala",
+                        f"Identičan ili gotovo identičan tekst detektovan na {g['source_count']} portala. "
+                        f"Primer naslova: {g['sample_title'][:200]}",
+                        score=g["max_score"],
+                        source_ids=list(g["sources"]),
+                    )
+            except Exception as exc:
+                logger.warning("coordination_copy detekcija preskocena (copy_similarity nedostupna): %s", exc)
 
             # 2. Topic spike — tema ima >200% vise clanaka nego 7-dnevni prosjek
             topic_spikes = await pg.fetch(

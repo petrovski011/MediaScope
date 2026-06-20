@@ -6,6 +6,26 @@ from sqlalchemy.sql import func
 
 from database import Base
 
+# pgvector je instaliran u Docker image-u; lokalno moze nedostajati.
+# Fallback na UserDefinedType da modul ne pukne van kontejnera.
+try:
+    from pgvector.sqlalchemy import Vector as _Vector
+
+    def _embedding_col(dim: int):
+        return Column(_Vector(dim))
+except ImportError:  # pragma: no cover
+    from sqlalchemy.types import UserDefinedType
+
+    class _Vector(UserDefinedType):  # type: ignore
+        def __init__(self, dim):
+            self.dim = dim
+
+        def get_col_spec(self, **kw):
+            return f"vector({self.dim})"
+
+    def _embedding_col(dim: int):
+        return Column(_Vector(dim))
+
 
 class ArticleAnalysis(Base):
     __tablename__ = "article_analysis"
@@ -146,3 +166,29 @@ class CalibrationFeedback(Base):
     corrected_value = Column(Text)
     applied_to_pipeline = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class CalibrationPrompt(Base):
+    __tablename__ = "calibration_prompts"
+
+    id = Column(Integer, primary_key=True)
+    analysis_type = Column(String(50), nullable=False)
+    version = Column(Integer, nullable=False)
+    prompt_text = Column(Text, nullable=False)
+    feedback_count = Column(Integer, default=0)
+    is_active = Column(Boolean, default=True)
+    activated_at = Column(DateTime(timezone=True))
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("analysis_type", "version"),)
+
+
+class ArticleEmbedding(Base):
+    __tablename__ = "article_embeddings"
+
+    id = Column(BigInteger, primary_key=True)
+    article_id = Column(BigInteger, ForeignKey("articles.id"), nullable=False, unique=True)
+    embedding = _embedding_col(1536)  # Faza 3 migrira na 768 (lokalni e5-base)
+    model_used = Column(String(100))
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

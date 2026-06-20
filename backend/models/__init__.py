@@ -5,12 +5,13 @@ from .analysis import (
     ArticleAnalysis, Entity, ArticleEntity,
     FramingType, ArticleFraming,
     Narrative, ArticleNarrative, NarrativeDailyIntensity,
-    CalibrationFeedback,
+    CalibrationFeedback, CalibrationPrompt, ArticleEmbedding,
 )
 from .coordination import (
     CoordinationCopypaste, CoordinationFraming, CoordinationNarrative,
-    Alert, Anomaly, DailySummary,
+    Alert, Anomaly, OriginTracking, DailySummary,
 )
+from .userspace import Watchlist, WatchlistItem, SavedSearch
 
 __all__ = [
     "User", "Source",
@@ -18,7 +19,8 @@ __all__ = [
     "ArticleAnalysis", "Entity", "ArticleEntity",
     "FramingType", "ArticleFraming",
     "Narrative", "ArticleNarrative", "NarrativeDailyIntensity",
-    "CalibrationFeedback",
+    "CalibrationFeedback", "CalibrationPrompt", "ArticleEmbedding",
     "CoordinationCopypaste", "CoordinationFraming", "CoordinationNarrative",
-    "Alert", "Anomaly", "DailySummary",
+    "Alert", "Anomaly", "OriginTracking", "DailySummary",
+    "Watchlist", "WatchlistItem", "SavedSearch",
 ]

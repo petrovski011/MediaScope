@@ -84,6 +84,21 @@ class Anomaly(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
+class OriginTracking(Base):
+    __tablename__ = "origin_tracking"
+
+    id = Column(BigInteger, primary_key=True)
+    topic = Column(String(200), nullable=False)
+    first_article_id = Column(BigInteger, ForeignKey("articles.id"), nullable=False)
+    first_source_id = Column(String(20), ForeignKey("sources.source_id"), nullable=False)
+    first_published_at = Column(DateTime(timezone=True), nullable=False)
+    has_exact_time = Column(Boolean, nullable=False, default=True)  # FALSE za RTS/Tanjug
+    total_coverage = Column(Integer)
+    spread_hours = Column(Float)
+    narrative_id = Column(Integer, ForeignKey("narratives.id"))
+    detected_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
 class DailySummary(Base):
     __tablename__ = "daily_summaries"
 
