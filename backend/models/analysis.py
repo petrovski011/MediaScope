@@ -233,6 +233,6 @@ class ArticleEmbedding(Base):
 
     id = Column(BigInteger, primary_key=True)
     article_id = Column(BigInteger, ForeignKey("articles.id"), nullable=False, unique=True)
-    embedding = _embedding_col(1536)  # Faza 3 migrira na 768 (lokalni e5-base)
+    embedding = _embedding_col(768)  # lokalni e5-base (Faza 3)
     model_used = Column(String(100))
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

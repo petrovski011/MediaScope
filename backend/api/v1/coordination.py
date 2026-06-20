@@ -42,68 +42,71 @@ async def find_copy_paste_groups(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Pronalazi grupe clanaka sa visoko slicnim naslovima objavljenih istog dana.
-    Koristi PostgreSQL pg_trgm za trigram slicnost.
+    Pronalazi parove clanaka sa visokom tekstualnom slicnoscu.
+    Primarno cita precomputed coordination_copypaste (pgvector cosine na lokalnim
+    embeddingima — Faza 3). Ako embeddingi jos nisu generisani, pada na pg_trgm
+    nad naslovima (isti dan) kao fallback.
     """
     thr = threshold or settings.COPYPASTE_THRESHOLD
     src_ids = [s.strip() for s in source_ids.split(",") if s.strip()] if source_ids else None
 
-    date_filter = ""
+    # --- primarno: precomputed coordination_copypaste (embeddingi) ---
+    cc_sql = """
+        SELECT a.id AS a_id, a.title AS a_title, a.source_id AS a_src, a.published_at AS a_pub,
+               b.id AS b_id, b.title AS b_title, b.source_id AS b_src, b.published_at AS b_pub,
+               cc.similarity_score AS sim, cc.same_owner_group AS same_owner
+        FROM coordination_copypaste cc
+        JOIN articles a ON a.id = cc.article_id_a
+        JOIN articles b ON b.id = cc.article_id_b
+        WHERE cc.similarity_score >= :threshold
+    """
+    params = {"threshold": thr, "limit": limit}
     if date_from:
-        date_filter += f" AND a1.published_at >= '{date_from}'"
+        cc_sql += " AND a.published_at >= :date_from"; params["date_from"] = date_from
     if date_to:
-        date_filter += f" AND a1.published_at <= '{date_to}'"
-
-    source_filter = ""
+        cc_sql += " AND a.published_at <= :date_to"; params["date_to"] = date_to
     if src_ids:
-        ids_str = ", ".join(f"'{s}'" for s in src_ids)
-        source_filter = f" AND (a1.source_id IN ({ids_str}) OR a2.source_id IN ({ids_str}))"
+        cc_sql += " AND (a.source_id = ANY(:srcs) OR b.source_id = ANY(:srcs))"; params["srcs"] = src_ids
+    cc_sql += " ORDER BY cc.similarity_score DESC LIMIT :limit"
 
-    # Pronalazi parove clanaka sa slicnim naslovima, razliciti izvori, isti dan
-    sql = text(f"""
-        SELECT
-            a1.id AS article1_id,
-            a1.title AS title1,
-            a1.source_id AS source1,
-            a1.published_at AS published1,
-            a2.id AS article2_id,
-            a2.title AS title2,
-            a2.source_id AS source2,
-            a2.published_at AS published2,
-            similarity(a1.title, a2.title) AS sim_score
-        FROM articles a1
-        JOIN articles a2 ON (
-            a1.id < a2.id
-            AND a1.source_id != a2.source_id
-            AND DATE(a1.published_at) = DATE(a2.published_at)
-            AND similarity(a1.title, a2.title) >= :threshold
-            AND length(a1.title) > 20
-            AND length(a2.title) > 20
-        )
-        WHERE 1=1
-        {date_filter}
-        {source_filter}
-        ORDER BY sim_score DESC
-        LIMIT :limit
-    """)
+    rows = (await db.execute(text(cc_sql), params)).all()
+    source = "embeddings"
 
-    rows = (await db.execute(sql, {"threshold": thr, "limit": limit})).all()
+    if not rows:
+        # --- fallback: pg_trgm nad naslovima, isti dan ---
+        source = "trigram_fallback"
+        date_filter = ""
+        if date_from:
+            date_filter += " AND a1.published_at >= :date_from"
+        if date_to:
+            date_filter += " AND a1.published_at <= :date_to"
+        source_filter = ""
+        if src_ids:
+            source_filter = " AND (a1.source_id = ANY(:srcs) OR a2.source_id = ANY(:srcs))"
+        fb_sql = text(f"""
+            SELECT a1.id AS a_id, a1.title AS a_title, a1.source_id AS a_src, a1.published_at AS a_pub,
+                   a2.id AS b_id, a2.title AS b_title, a2.source_id AS b_src, a2.published_at AS b_pub,
+                   similarity(a1.title, a2.title) AS sim, NULL::boolean AS same_owner
+            FROM articles a1
+            JOIN articles a2 ON (
+                a1.id < a2.id AND a1.source_id != a2.source_id
+                AND DATE(a1.published_at) = DATE(a2.published_at)
+                AND similarity(a1.title, a2.title) >= :threshold
+                AND length(a1.title) > 20 AND length(a2.title) > 20
+            )
+            WHERE 1=1 {date_filter} {source_filter}
+            ORDER BY sim DESC LIMIT :limit
+        """)
+        rows = (await db.execute(fb_sql, params)).all()
 
     pairs = [
         {
-            "article1": {
-                "id": r.article1_id,
-                "title": r.title1,
-                "source_id": r.source1,
-                "published_at": r.published1.isoformat() if r.published1 else None,
-            },
-            "article2": {
-                "id": r.article2_id,
-                "title": r.title2,
-                "source_id": r.source2,
-                "published_at": r.published2.isoformat() if r.published2 else None,
-            },
-            "similarity_score": round(float(r.sim_score), 3),
+            "article1": {"id": r.a_id, "title": r.a_title, "source_id": r.a_src,
+                         "published_at": r.a_pub.isoformat() if r.a_pub else None},
+            "article2": {"id": r.b_id, "title": r.b_title, "source_id": r.b_src,
+                         "published_at": r.b_pub.isoformat() if r.b_pub else None},
+            "similarity_score": round(float(r.sim), 3),
+            "same_owner_group": r.same_owner,
         }
         for r in rows
     ]
@@ -112,6 +115,7 @@ async def find_copy_paste_groups(
         "pairs": pairs,
         "threshold_used": thr,
         "total": len(pairs),
+        "source": source,
         "methodology_note": METHODOLOGY_NOTE,
     }
 
@@ -206,39 +210,55 @@ async def find_similar_articles(
 ):
     """
     Za dati clanak pronalazi slicne clanke iz DRUGIH izvora.
-    Koristi trigram slicnost naslova.
+    Primarno: pgvector cosine (semanticka slicnost, lokalni embeddingi).
+    Fallback: pg_trgm nad naslovom ako clanak nema embedding.
     """
     article = await db.get(Article, article_id)
     if not article:
         raise HTTPException(status_code=404, detail="NOT_FOUND")
 
-    sql = text("""
-        SELECT
-            a.id,
-            a.title,
-            a.source_id,
-            a.published_at,
-            a.url,
-            similarity(a.title, :title) AS sim_score,
-            aa.primary_topic,
-            aa.political_score
-        FROM articles a
-        LEFT JOIN article_analysis aa ON a.id = aa.article_id
-        WHERE
-            a.source_id != :source_id
-            AND similarity(a.title, :title) > 0.3
-            AND length(a.title) > 15
-            AND a.id != :article_id
-        ORDER BY sim_score DESC
-        LIMIT :limit
-    """)
+    has_emb = await db.scalar(text(
+        "SELECT 1 FROM article_embeddings WHERE article_id = :aid AND embedding IS NOT NULL"
+    ), {"aid": article_id})
 
-    rows = (await db.execute(sql, {
-        "title": article.title,
-        "source_id": article.source_id,
-        "article_id": article_id,
-        "limit": limit,
-    })).all()
+    sim_thr = settings.SIMILAR_ARTICLES_THRESHOLD
+    if has_emb:
+        sql = text("""
+            SELECT a.id, a.title, a.source_id, a.published_at, a.url,
+                   1 - (e.embedding <=> q.embedding) AS sim_score,
+                   aa.primary_topic, aa.political_score
+            FROM article_embeddings q
+            JOIN article_embeddings e ON e.article_id != q.article_id
+            JOIN articles a ON a.id = e.article_id
+            LEFT JOIN article_analysis aa ON aa.article_id = a.id
+            WHERE q.article_id = :article_id
+              AND a.source_id != :source_id
+              AND (1 - (e.embedding <=> q.embedding)) >= :sim_thr
+            ORDER BY e.embedding <=> q.embedding
+            LIMIT :limit
+        """)
+        rows = (await db.execute(sql, {
+            "article_id": article_id, "source_id": article.source_id,
+            "sim_thr": sim_thr, "limit": limit,
+        })).all()
+    else:
+        sql = text("""
+            SELECT a.id, a.title, a.source_id, a.published_at, a.url,
+                   similarity(a.title, :title) AS sim_score,
+                   aa.primary_topic, aa.political_score
+            FROM articles a
+            LEFT JOIN article_analysis aa ON a.id = aa.article_id
+            WHERE a.source_id != :source_id
+              AND similarity(a.title, :title) > 0.3
+              AND length(a.title) > 15
+              AND a.id != :article_id
+            ORDER BY sim_score DESC
+            LIMIT :limit
+        """)
+        rows = (await db.execute(sql, {
+            "title": article.title, "source_id": article.source_id,
+            "article_id": article_id, "limit": limit,
+        })).all()
 
     return {
         "article": {

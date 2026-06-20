@@ -38,5 +38,8 @@ celery[redis]>=5.3.0
 # AI
 anthropic>=0.40.0
 
+# Embeddings (lokalni multilingvalni model — tekst ne napusta infrastrukturu)
+sentence-transformers>=3.0.0
+
 # Utils
 python-dotenv>=1.0.0

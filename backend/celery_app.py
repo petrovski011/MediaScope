@@ -47,6 +47,16 @@ celery.conf.beat_schedule = {
         "task": "pipeline.tasks.compute_narrative_matching",
         "schedule": crontab(hour=6, minute=0),
     },
+    # Generisanje lokalnih embeddinga (svakih 30 min, hvata nove analizirane clanke)
+    "generate-embeddings": {
+        "task": "pipeline.tasks.generate_embeddings",
+        "schedule": crontab(minute="*/30"),
+    },
+    # Copy-paste koordinacija (pgvector) — nocno, posle obrade batch-a
+    "detect-copypaste": {
+        "task": "pipeline.tasks.detect_copypaste",
+        "schedule": crontab(hour=2, minute=45),
+    },
     # Detekcija alerta u 08:00 (posle jutarnjeg scraping runda)
     "detect-alerts": {
         "task": "pipeline.tasks.detect_alerts",

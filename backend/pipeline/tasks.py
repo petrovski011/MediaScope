@@ -310,6 +310,159 @@ def check_and_process_batch(self):
     }
 
 
+@celery.task(name="pipeline.tasks.generate_embeddings")
+def generate_embeddings(limit: int = 500):
+    """Generise lokalne embeddinge za analizirane clanke bez embedding-a.
+
+    Pokrece se periodicno (i kao backfill). Tekst ne napusta infrastrukturu.
+    """
+    from pipeline.embeddings import embed_texts, build_embed_input
+
+    async def _fetch(lim):
+        pg = await asyncpg.connect(PG_DSN)
+        try:
+            rows = await pg.fetch(
+                """
+                SELECT a.id, a.title, a.text_content
+                FROM articles a
+                JOIN article_analysis aa ON aa.article_id = a.id
+                LEFT JOIN article_embeddings e ON e.article_id = a.id
+                WHERE e.id IS NULL AND a.text_content IS NOT NULL
+                ORDER BY a.id DESC
+                LIMIT $1
+                """,
+                lim,
+            )
+            return [dict(r) for r in rows]
+        finally:
+            await pg.close()
+
+    async def _save(items, vectors):
+        pg = await asyncpg.connect(PG_DSN)
+        try:
+            for it, vec in zip(items, vectors):
+                await pg.execute(
+                    """
+                    INSERT INTO article_embeddings (article_id, embedding, model_used, created_at)
+                    VALUES ($1, $2, $3, NOW())
+                    ON CONFLICT (article_id) DO UPDATE SET
+                        embedding = EXCLUDED.embedding, model_used = EXCLUDED.model_used
+                    """,
+                    it["id"], str(vec), settings.EMBEDDING_MODEL,
+                )
+        finally:
+            await pg.close()
+
+    items = _run_async(_fetch(limit))
+    if not items:
+        return {"status": "done", "embedded": 0}
+
+    texts = [build_embed_input(it["title"], it["text_content"]) for it in items]
+    vectors = embed_texts(texts, is_query=False)
+    _run_async(_save(items, vectors))
+    logger.info("generate_embeddings: %d clanaka embedovano", len(items))
+    return {"status": "ok", "embedded": len(items)}
+
+
+@celery.task(name="pipeline.tasks.detect_copypaste")
+def detect_copypaste():
+    """Pravi copy-paste detekcija preko pgvector cosine slicnosti (lokalni embeddingi).
+
+    Uporedjuje clanke u prozoru COPYPASTE_WINDOW_HOURS, razlicit izvor, cosine >= prag.
+    Upisuje u coordination_copypaste; parovi >= alert prag -> alert.
+    """
+    thr = settings.COPYPASTE_THRESHOLD
+    alert_thr = settings.COPYPASTE_ALERT_THRESHOLD
+    window = settings.COPYPASTE_WINDOW_HOURS
+
+    async def _run():
+        pg = await asyncpg.connect(PG_DSN)
+        try:
+            # Recompute window: obrisi postojece parove za clanke u prozoru (idempotentno)
+            await pg.execute(
+                f"""
+                DELETE FROM coordination_copypaste
+                WHERE article_id_a IN (
+                    SELECT a.id FROM articles a WHERE a.published_at >= NOW() - INTERVAL '{window} hours'
+                ) OR article_id_b IN (
+                    SELECT a.id FROM articles a WHERE a.published_at >= NOW() - INTERVAL '{window} hours'
+                )
+                """
+            )
+            pairs = await pg.fetch(
+                f"""
+                WITH recent AS (
+                    SELECT e.article_id, e.embedding, a.source_id, a.title, s.owner_group
+                    FROM article_embeddings e
+                    JOIN articles a ON a.id = e.article_id
+                    JOIN sources s ON s.source_id = a.source_id
+                    WHERE a.published_at >= NOW() - INTERVAL '{window} hours'
+                )
+                SELECT r1.article_id AS a_id, r2.article_id AS b_id,
+                       1 - (r1.embedding <=> r2.embedding) AS sim,
+                       (r1.owner_group IS NOT DISTINCT FROM r2.owner_group) AS same_owner,
+                       r1.source_id AS src_a, r2.source_id AS src_b,
+                       r1.title AS title_a
+                FROM recent r1
+                JOIN recent r2
+                  ON r1.article_id < r2.article_id
+                 AND r1.source_id <> r2.source_id
+                WHERE (r1.embedding <=> r2.embedding) <= {1 - thr}
+                ORDER BY sim DESC
+                LIMIT 2000
+                """
+            )
+
+            inserted = 0
+            for p in pairs:
+                await pg.execute(
+                    """
+                    INSERT INTO coordination_copypaste
+                        (article_id_a, article_id_b, similarity_score, same_owner_group, detected_at)
+                    VALUES ($1, $2, $3, $4, NOW())
+                    """,
+                    p["a_id"], p["b_id"], float(p["sim"]), bool(p["same_owner"]),
+                )
+                inserted += 1
+
+            # Alert za visoke slicnosti izmedju razlicitih vlasnickih grupa
+            high = [p for p in pairs if p["sim"] >= alert_thr and not p["same_owner"]]
+            alerts_created = 0
+            if high:
+                from datetime import date
+                today = date.today().isoformat()
+                # grupa: broj distinct izvora ukljucenih u visoke parove
+                srcs = set()
+                for p in high:
+                    srcs.add(p["src_a"]); srcs.add(p["src_b"])
+                exists = await pg.fetchval(
+                    "SELECT id FROM alerts WHERE alert_type='coordination_copy' AND date=$1 LIMIT 1", today
+                )
+                if not exists and len(srcs) >= 3:
+                    await pg.execute(
+                        """
+                        INSERT INTO alerts (alert_type, severity, title, description, score, source_ids, date)
+                        VALUES ('coordination_copy', $1, $2, $3, $4, $5, $6)
+                        """,
+                        "high" if len(srcs) >= 5 else "medium",
+                        f"Copy-paste koordinacija: {len(srcs)} portala",
+                        f"Visoka tekstualna slicnost (>= {int(alert_thr*100)}%) izmedju {len(high)} parova "
+                        f"clanaka na {len(srcs)} portala razlicitih vlasnickih grupa. "
+                        f"Primer: {high[0]['title_a'][:160]}",
+                        float(max(p["sim"] for p in high)),
+                        list(srcs), today,
+                    )
+                    alerts_created = 1
+
+            return {"pairs": inserted, "alerts": alerts_created}
+        finally:
+            await pg.close()
+
+    result = _run_async(_run())
+    logger.info("detect_copypaste zavrsen: %s", result)
+    return result
+
+
 @celery.task(name="pipeline.tasks.run_batch_for_articles")
 def run_batch_for_articles(article_ids: list[int]):
     """
@@ -409,41 +562,39 @@ def detect_alerts():
                 )
                 alerts_created += 1
 
-            # 1. Koordinacioni alert — kopirani clanci (similarity >= 0.85, 4+ izvora)
-            # NAPOMENA (Faza 0): tabela copy_similarity ne postoji u shemi — ova detekcija
-            # je privremeno zasticena try/except-om i bice preusmerena na coordination_copypaste
-            # u Fazi 3 (pravi embedding-based copy-paste). Do tada ne sme da obori ceo task.
+            # 1. Koordinacioni alert — copy-paste iz coordination_copypaste (Faza 3, pgvector).
+            # detect_copypaste task vec kreira detaljan alert; ovde dodatno hvatamo dnevni
+            # zbir ako task nije stigao da kreira alert (npr. mnogo parova istog dana).
             try:
-                copy_groups = await pg.fetch(
+                cp = await pg.fetchrow(
                     """
-                    SELECT
-                        similarity_group,
-                        COUNT(DISTINCT a.source_id) AS source_count,
-                        MAX(cs.similarity_score) AS max_score,
-                        ARRAY_AGG(DISTINCT a.source_id) AS sources,
-                        MAX(a.title) AS sample_title
-                    FROM copy_similarity cs
-                    JOIN articles a ON a.id = cs.article_id
-                    WHERE cs.similarity_score >= 0.85
-                      AND a.published_at >= NOW() - INTERVAL '24 hours'
-                    GROUP BY similarity_group
-                    HAVING COUNT(DISTINCT a.source_id) >= 4
-                    ORDER BY source_count DESC
-                    LIMIT 5
+                    SELECT COUNT(*) AS pair_count,
+                           COUNT(DISTINCT a.source_id) + COUNT(DISTINCT b.source_id) AS src_estimate,
+                           MAX(cc.similarity_score) AS max_score,
+                           ARRAY_AGG(DISTINCT a.source_id) || ARRAY_AGG(DISTINCT b.source_id) AS sources
+                    FROM coordination_copypaste cc
+                    JOIN articles a ON a.id = cc.article_id_a
+                    JOIN articles b ON b.id = cc.article_id_b
+                    WHERE cc.detected_at >= NOW() - INTERVAL '24 hours'
+                      AND cc.similarity_score >= $1
+                      AND COALESCE(cc.same_owner_group, FALSE) = FALSE
                     """,
+                    settings.COPYPASTE_ALERT_THRESHOLD,
                 )
-                for g in copy_groups:
-                    await _create_alert(
-                        "coordination_copy",
-                        "high" if g["source_count"] >= 6 else "medium",
-                        f"Koordinisano kopiranje: {g['source_count']} portala",
-                        f"Identičan ili gotovo identičan tekst detektovan na {g['source_count']} portala. "
-                        f"Primer naslova: {g['sample_title'][:200]}",
-                        score=g["max_score"],
-                        source_ids=list(g["sources"]),
-                    )
+                if cp and cp["pair_count"] and cp["pair_count"] > 0:
+                    srcs = sorted({s for s in (cp["sources"] or []) if s})
+                    if len(srcs) >= 4:
+                        await _create_alert(
+                            "coordination_copy",
+                            "high" if len(srcs) >= 6 else "medium",
+                            f"Koordinisano kopiranje: {len(srcs)} portala",
+                            f"Gotovo identičan tekst (>= {int(settings.COPYPASTE_ALERT_THRESHOLD*100)}%) "
+                            f"u {cp['pair_count']} parova na {len(srcs)} portala različitih vlasničkih grupa.",
+                            score=cp["max_score"],
+                            source_ids=srcs,
+                        )
             except Exception as exc:
-                logger.warning("coordination_copy detekcija preskocena (copy_similarity nedostupna): %s", exc)
+                logger.warning("coordination_copy alert preskocen: %s", exc)
 
             # 2. Topic spike — tema ima >200% vise clanaka nego 7-dnevni prosjek
             topic_spikes = await pg.fetch(
