@@ -67,20 +67,24 @@ async def _load_catalogs() -> tuple:
             """,
             settings.NARRATIVE_CATALOG_MAX,
         )
+        calib_rows = await pg.fetch(
+            "SELECT prompt_text FROM calibration_prompts WHERE is_active = TRUE ORDER BY analysis_type, version"
+        )
         framing_text = build_framing_catalog_text([dict(r) for r in framing_rows]) if framing_rows else ""
         narrative_text = build_narrative_catalog_text([dict(r) for r in narrative_rows]) if narrative_rows else ""
-        return framing_text, narrative_text
+        calibration_text = "\n\n".join(r["prompt_text"] for r in calib_rows) if calib_rows else ""
+        return framing_text, narrative_text, calibration_text
     finally:
         await pg.close()
 
 
 def _build_analysis_system():
-    """Sklapa `system` (framing + narrative katalog + cache_control) za analizni poziv."""
+    """Sklapa `system` (kalibracija + framing + narrative katalog + cache_control)."""
     from pipeline.prompts import build_system
 
-    framing_text, narrative_text = _run_async(_load_catalogs())
+    framing_text, narrative_text, calibration_text = _run_async(_load_catalogs())
     return build_system(
-        framing_text or None, narrative_text or None,
+        framing_text or None, narrative_text or None, calibration_text or None,
         enable_caching=settings.ENABLE_PROMPT_CACHING,
     )
 
@@ -723,9 +727,12 @@ def compute_narrative_matching():
 @celery.task(name="pipeline.tasks.apply_calibration_feedback")
 def apply_calibration_feedback():
     """
-    Agregira neaplicirani feedback analitičara i dodaje korekcije u SYSTEM_PROMPT varijablu (in-memory).
-    Oznaci feedback kao applied_to_pipeline = True.
-    Pokrece se nedeljno.
+    Agregira neaplicirani feedback analitičara, PERSISTIRA korekcije u calibration_prompts
+    (versioned, is_active) i pokrece re-analizu embedding-slicnih clanaka. Oznaci feedback
+    kao applied_to_pipeline=TRUE. Pokrece se nedeljno.
+
+    Za razliku od ranije in-memory mutacije SYSTEM_PROMPT-a, korekcije sada prezive restart
+    i dele se medju workerima (build_system cita aktivne calibration_prompts iz DB).
     """
     logger.info("apply_calibration_feedback: pocinje")
 
@@ -734,7 +741,7 @@ def apply_calibration_feedback():
         try:
             rows = await pg.fetch(
                 """
-                SELECT analysis_type, is_correct, original_value, corrected_value, comment
+                SELECT id, article_id, analysis_type, is_correct, original_value, corrected_value, comment
                 FROM calibration_feedback
                 WHERE applied_to_pipeline = FALSE
                 ORDER BY created_at DESC
@@ -745,51 +752,91 @@ def apply_calibration_feedback():
                 logger.info("Nema novih feedbackova za procesiranje")
                 return {"processed": 0}
 
-            # Grupiraj po analysis_type
             from collections import defaultdict
             groups = defaultdict(list)
             for r in rows:
                 groups[r["analysis_type"]].append(dict(r))
 
-            # Generiši summary korekcija
             corrections = []
             for atype, items in groups.items():
                 wrong = [i for i in items if not i["is_correct"]]
                 if not wrong:
                     continue
-                examples = wrong[:5]
-                ex_str = ", ".join(
-                    f"'{e['original_value']}' -> '{e['corrected_value']}'" if e.get("corrected_value") else f"'{e['original_value']}' (netacno)"
-                    for e in examples if e.get("original_value")
+                examples = wrong[:8]
+                ex_str = "; ".join(
+                    (f"'{e['original_value']}' -> '{e['corrected_value']}'"
+                     if e.get("corrected_value") else f"'{e['original_value']}' (netacno)")
+                    + (f" [{e['comment']}]" if e.get("comment") else "")
+                    for e in examples if e.get("original_value") or e.get("comment")
                 )
                 if ex_str:
-                    corrections.append(f"{atype}: {len(wrong)} korekcija (primeri: {ex_str})")
+                    corrections.append(f"- {atype}: {len(wrong)} korekcija. Primeri: {ex_str}")
 
+            corrections_persisted = 0
             if corrections:
-                correction_note = "\n\nKorekcije analitičara (primeni pri sledecoj analizi):\n" + "\n".join(f"- {c}" for c in corrections)
-                import pipeline.prompts as prompts_module
-                if not hasattr(prompts_module, '_calibration_note'):
-                    prompts_module._calibration_note = ""
-                prompts_module._calibration_note = correction_note
-                original_system = prompts_module.SYSTEM_PROMPT
-                if "\n\nKorekcije analitičara" in original_system:
-                    prompts_module.SYSTEM_PROMPT = original_system.split("\n\nKorekcije analitičara")[0] + correction_note
-                else:
-                    prompts_module.SYSTEM_PROMPT = original_system + correction_note
-                logger.info("Dodate korekcije u SYSTEM_PROMPT: %d tipova", len(corrections))
+                correction_note = (
+                    "KOREKCIJE ANALITIČARA (na osnovu povratnih informacija — primeni pri analizi):\n"
+                    + "\n".join(corrections)
+                )
+                # versioned upsert: deaktiviraj prethodne 'global', upisi novu verziju
+                await pg.execute(
+                    "UPDATE calibration_prompts SET is_active = FALSE WHERE analysis_type = 'global' AND is_active = TRUE"
+                )
+                next_ver = await pg.fetchval(
+                    "SELECT COALESCE(MAX(version), 0) + 1 FROM calibration_prompts WHERE analysis_type = 'global'"
+                )
+                await pg.execute(
+                    """
+                    INSERT INTO calibration_prompts
+                        (analysis_type, version, prompt_text, feedback_count, is_active, activated_at, created_at)
+                    VALUES ('global', $1, $2, $3, TRUE, NOW(), NOW())
+                    """,
+                    next_ver, correction_note, len(rows),
+                )
+                corrections_persisted = len(corrections)
+                logger.info("Persistirana kalibracija v%d (%d tipova korekcija)", next_ver, len(corrections))
 
-            # Označi sve kao aplicirane
-            status = await pg.execute(
+            # Re-analiza: nadji embedding-slicne clanke korigovanima
+            corrected_ids = [r["article_id"] for r in rows if not r["is_correct"] and r["article_id"]]
+            reanalyze_ids: list[int] = []
+            if corrected_ids:
+                sim_rows = await pg.fetch(
+                    """
+                    SELECT DISTINCT e2.article_id
+                    FROM article_embeddings e1
+                    JOIN article_embeddings e2 ON e2.article_id <> e1.article_id
+                    WHERE e1.article_id = ANY($1::bigint[])
+                      AND (1 - (e1.embedding <=> e2.embedding)) >= $2
+                    LIMIT $3
+                    """,
+                    corrected_ids, settings.CALIBRATION_SIMILARITY_THRESHOLD,
+                    settings.CALIBRATION_REANALYSIS_MAX,
+                )
+                reanalyze_ids = [r["article_id"] for r in sim_rows]
+                # ukljuci i same korigovane clanke (re-analiziraj ih pod novim promptom)
+                reanalyze_ids = list(set(reanalyze_ids) | set(corrected_ids))[: settings.CALIBRATION_REANALYSIS_MAX]
+
+            await pg.execute(
                 "UPDATE calibration_feedback SET applied_to_pipeline=TRUE WHERE applied_to_pipeline=FALSE"
             )
-            count = len(rows)
-
-            logger.info("Aplicirano %d feedbackova", count)
-            return {"processed": len(rows), "corrections": len(corrections)}
+            return {
+                "processed": len(rows),
+                "corrections": corrections_persisted,
+                "reanalyze_queued": len(reanalyze_ids),
+                "reanalyze_ids": reanalyze_ids,
+            }
         finally:
             await pg.close()
 
     result = _run_async(_run())
+    # Pokreni re-analizu van DB konekcije (zaseban task, pod novim kalibracionim promptom)
+    rids = result.pop("reanalyze_ids", [])
+    if rids:
+        try:
+            run_batch_for_articles.delay(rids)
+            logger.info("Re-analiza zakazana za %d clanaka", len(rids))
+        except Exception as exc:
+            logger.warning("Re-analiza nije zakazana: %s", exc)
     logger.info("apply_calibration_feedback zavrsen: %s", result)
     return result
 

@@ -11,7 +11,7 @@ from database import get_db
 from models.users import User
 from models.articles import ScraperRun, PipelineBatch
 from models.sources import Source
-from models.analysis import CalibrationFeedback
+from models.analysis import CalibrationFeedback, CalibrationPrompt
 from api.deps import require_role
 from config import settings
 from passlib.context import CryptContext
@@ -265,3 +265,61 @@ async def get_feedback(
             for r in rows
         ]
     }
+
+
+@router.get("/calibration/prompts")
+async def get_calibration_prompts(
+    current_user=_require_admin,
+    db: AsyncSession = Depends(get_db),
+):
+    rows = (await db.execute(
+        select(CalibrationPrompt).order_by(desc(CalibrationPrompt.created_at))
+    )).scalars().all()
+    return {
+        "items": [
+            {
+                "id": p.id,
+                "analysis_type": p.analysis_type,
+                "version": p.version,
+                "prompt_text": p.prompt_text,
+                "feedback_count": p.feedback_count,
+                "is_active": p.is_active,
+                "activated_at": p.activated_at.isoformat() if p.activated_at else None,
+                "created_at": p.created_at.isoformat() if p.created_at else None,
+            }
+            for p in rows
+        ]
+    }
+
+
+@router.post("/calibration/prompts/{prompt_id}/activate")
+async def activate_calibration_prompt(
+    prompt_id: int,
+    current_user=_require_admin,
+    db: AsyncSession = Depends(get_db),
+):
+    """Aktivira odredjenu verziju (rollback) — deaktivira ostale istog analysis_type."""
+    p = await db.get(CalibrationPrompt, prompt_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="NOT_FOUND")
+    # deaktiviraj ostale istog tipa
+    others = (await db.execute(
+        select(CalibrationPrompt).where(
+            CalibrationPrompt.analysis_type == p.analysis_type,
+            CalibrationPrompt.id != p.id,
+        )
+    )).scalars().all()
+    for o in others:
+        o.is_active = False
+    p.is_active = True
+    p.activated_at = datetime.now(timezone.utc)
+    await db.commit()
+    return {"id": p.id, "version": p.version, "is_active": True}
+
+
+@router.post("/calibration/run")
+async def run_calibration(current_user=_require_admin):
+    """Rucno pokretanje kalibracije (umesto cekanja nedeljnog beat-a)."""
+    from pipeline.tasks import apply_calibration_feedback
+    apply_calibration_feedback.delay()
+    return {"status": "queued"}

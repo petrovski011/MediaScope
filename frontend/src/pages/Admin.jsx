@@ -205,6 +205,68 @@ function SystemControl({ label, statusKey, statusUrl, pauseUrl, resumeUrl, descr
 }
 
 
+function CalibrationPanel() {
+  const qc = useQueryClient()
+  const { data } = useQuery({
+    queryKey: ['calibration-prompts'],
+    queryFn: () => api.get('/admin/calibration/prompts').then(r => r.data.items),
+  })
+  const runMutation = useMutation({
+    mutationFn: () => api.post('/admin/calibration/run'),
+    onSuccess: () => setTimeout(() => qc.invalidateQueries(['calibration-prompts']), 1500),
+  })
+  const activateMutation = useMutation({
+    mutationFn: (id) => api.post(`/admin/calibration/prompts/${id}/activate`),
+    onSuccess: () => qc.invalidateQueries(['calibration-prompts']),
+  })
+  const prompts = data || []
+
+  return (
+    <section className="mb-8">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Kalibracija (RLHF)</h2>
+        <button onClick={() => runMutation.mutate()} disabled={runMutation.isPending}
+          className="px-3 py-1.5 rounded-md text-sm font-medium disabled:opacity-50"
+          style={{ background: 'var(--accent)', color: 'white' }}>
+          {runMutation.isPending ? 'Pokrećem…' : 'Pokreni kalibraciju'}
+        </button>
+      </div>
+      <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+        {prompts.length === 0 ? (
+          <div className="px-4 py-6 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
+            Nema kalibracionih verzija. Pokreni kalibraciju nakon što analitičari pošalju feedback.
+          </div>
+        ) : (
+          <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+            {prompts.map(p => (
+              <div key={p.id} className="px-4 py-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                      {p.analysis_type} v{p.version}
+                    </span>
+                    {p.is_active
+                      ? <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: '#22c55e33', color: '#22c55e' }}>aktivna</span>
+                      : <button onClick={() => activateMutation.mutate(p.id)}
+                          className="text-[10px] px-1.5 py-0.5 rounded border hover:bg-white/[0.04]" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
+                          aktiviraj
+                        </button>}
+                    <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{p.feedback_count} feedback</span>
+                  </div>
+                  <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                    {p.created_at ? new Date(p.created_at).toLocaleString('sr-Latn', { hour12: false }) : ''}
+                  </span>
+                </div>
+                <pre className="text-xs mt-1.5 whitespace-pre-wrap" style={{ color: 'var(--text-muted)', fontFamily: 'inherit' }}>{p.prompt_text}</pre>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}
+
 export default function Admin() {
   const qc = useQueryClient()
   const [editUser, setEditUser] = useState(null)
@@ -293,6 +355,8 @@ export default function Admin() {
           description="Zakazani scraper rundovi nece se pokrenuti dok se scraper ne nastavi."
         />
       </section>
+
+      <CalibrationPanel />
 
       {/* Korisnici */}
       <section className="mb-8">

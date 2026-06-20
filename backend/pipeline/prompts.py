@@ -111,22 +111,30 @@ def build_narrative_catalog_text(narrative_rows: list[dict]) -> str:
 def build_system(
     framing_catalog_text: Optional[str] = None,
     narrative_catalog_text: Optional[str] = None,
+    calibration_text: Optional[str] = None,
     enable_caching: bool = True,
 ):
     """Vraca `system` vrednost za Anthropic poziv.
 
-    Bez kataloga: obican string (SYSTEM_PROMPT).
-    Sa katalozima: lista blokova [bazni prompt, framing katalog, narativ katalog] sa
-    cache_control na poslednjem (identicni kroz ceo batch -> kesiraju se jednom).
+    Bez dodataka: obican string (SYSTEM_PROMPT).
+    Inace: lista blokova [bazni prompt, kalibracija, framing katalog, narativ katalog]
+    sa cache_control na poslednjem (identicni kroz ceo batch -> kesiraju se jednom).
+
+    Kalibracija dolazi iz DB (calibration_prompts) — preživljava restart i deli se
+    medju workerima (za razliku od ranije in-memory mutacije SYSTEM_PROMPT-a).
     """
-    blocks = [{"type": "text", "text": SYSTEM_PROMPT}]
+    base = SYSTEM_PROMPT
+    if calibration_text:
+        base = SYSTEM_PROMPT + "\n\n" + calibration_text
+
+    blocks = [{"type": "text", "text": base}]
     if framing_catalog_text:
         blocks.append({"type": "text", "text": framing_catalog_text})
     if narrative_catalog_text:
         blocks.append({"type": "text", "text": narrative_catalog_text})
 
-    if len(blocks) == 1:
-        return SYSTEM_PROMPT  # nema kataloga -> obican string
+    if len(blocks) == 1 and not calibration_text:
+        return SYSTEM_PROMPT  # nista dodatno -> obican string
 
     if enable_caching:
         blocks[-1]["cache_control"] = {"type": "ephemeral"}
