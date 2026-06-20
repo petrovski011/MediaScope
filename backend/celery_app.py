@@ -62,6 +62,11 @@ celery.conf.beat_schedule = {
         "task": "pipeline.tasks.detect_coordination",
         "schedule": crontab(hour=2, minute=55),
     },
+    # Origin tracking — ko je prvi objavio temu
+    "detect-origin": {
+        "task": "pipeline.tasks.detect_origin",
+        "schedule": crontab(hour=3, minute=10),
+    },
     # Detekcija alerta u 08:00 (posle jutarnjeg scraping runda)
     "detect-alerts": {
         "task": "pipeline.tasks.detect_alerts",

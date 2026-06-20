@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Hash, EyeOff, BarChart3 } from 'lucide-react'
+import { Hash, EyeOff, BarChart3, Clock, AlertTriangle } from 'lucide-react'
 import { useFilters, toParams } from '../store/filters'
 import api from '../lib/api'
 
@@ -12,6 +12,48 @@ const TOPIC_LABELS = {
   SPOLJNA_POLITIKA: 'Spoljna politika', LOKALNA_VLAST: 'Lokalna vlast', DRUSTVO: 'Društvo',
 }
 const tlabel = (t) => TOPIC_LABELS[t] || t
+
+function OriginTimeline({ topic }) {
+  const { data } = useQuery({
+    queryKey: ['topic-origin', topic],
+    queryFn: () => api.get(`/topics/${encodeURIComponent(topic)}/origin`).then(r => r.data),
+  })
+  if (!data || !data.spread_timeline?.length) return null
+  const tl = data.spread_timeline
+  const fmt = (s) => s ? new Date(s).toLocaleString('sr-Latn', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '—'
+
+  return (
+    <div className="rounded-xl border p-4" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+      <div className="flex items-center gap-2 mb-3">
+        <Clock size={14} style={{ color: 'var(--text-muted)' }} />
+        <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Origin tracking — ko je prvi objavio</h3>
+      </div>
+      {data.origin && (
+        <p className="text-xs mb-3" style={{ color: 'var(--text-secondary)' }}>
+          Prvi: <span className="font-mono font-medium">{data.origin.first_source_id}</span>
+          {!data.origin.has_exact_time && <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded" style={{ background: '#f59e0b33', color: '#f59e0b' }}>vreme nesigurno</span>}
+          {data.origin.spread_hours != null && <span className="ml-2" style={{ color: 'var(--text-muted)' }}>· širenje {data.origin.spread_hours}h · {data.origin.total_coverage} izvora</span>}
+        </p>
+      )}
+      <div className="space-y-1.5">
+        {tl.map((s, i) => (
+          <div key={s.source_id} className="flex items-center gap-3">
+            <span className="text-xs w-6 text-right tabular-nums" style={{ color: 'var(--text-muted)' }}>{i + 1}.</span>
+            <span className="text-xs font-mono w-20" style={{ color: i === 0 ? 'var(--accent)' : 'var(--text-primary)' }}>{s.source_id}</span>
+            <span className="text-xs flex-1" style={{ color: 'var(--text-muted)' }}>
+              {fmt(s.first_published_at)}
+              {!s.exact_time && <span className="ml-1.5 text-[10px] px-1 py-0.5 rounded" style={{ background: 'var(--bg-elevated)', color: '#f59e0b' }}>samo datum</span>}
+            </span>
+            <span className="text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>{s.article_count}</span>
+          </div>
+        ))}
+      </div>
+      <p className="text-xs mt-3 flex items-start gap-1.5 italic" style={{ color: 'var(--text-muted)' }}>
+        <AlertTriangle size={12} className="mt-0.5 shrink-0" style={{ color: '#f59e0b' }} /> {data.origin_note}
+      </p>
+    </div>
+  )
+}
 
 function CoverageDetail({ topic, filterParams }) {
   const { data: cov } = useQuery({
@@ -100,6 +142,8 @@ function CoverageDetail({ topic, filterParams }) {
           </div>
         </div>
       )}
+
+      <OriginTimeline topic={topic} />
     </div>
   )
 }

@@ -677,6 +677,91 @@ def detect_alerts():
     return result
 
 
+@celery.task(name="pipeline.tasks.detect_origin")
+def detect_origin(window_days: int = 7):
+    """
+    Origin tracking: za svaku aktivnu temu u prozoru, ko je PRVI objavio i kako se sirilo.
+
+    Tanjug paradoks: RTS i Tanjug (has_timestamp_time=FALSE) imaju samo datum bez vremena,
+    pa se ne mogu pouzdano poredati unutar dana. Ako je prvi clanak iz date-only izvora,
+    has_exact_time=FALSE i UI prikazuje ogradu umesto tvrdnje o redosledu.
+    spread_hours se racuna SAMO preko exact-time izvora.
+    """
+    logger.info("detect_origin: pocinje")
+
+    async def _run():
+        pg = await asyncpg.connect(PG_DSN)
+        try:
+            topics = await pg.fetch(
+                f"""
+                SELECT aa.primary_topic AS topic, COUNT(DISTINCT a.source_id) AS coverage
+                FROM article_analysis aa JOIN articles a ON a.id = aa.article_id
+                WHERE a.published_at >= NOW() - INTERVAL '{window_days} days' AND aa.primary_topic IS NOT NULL
+                GROUP BY aa.primary_topic
+                HAVING COUNT(DISTINCT a.source_id) >= 2
+                """
+            )
+            created = 0
+            for t in topics:
+                topic = t["topic"]
+                # prvi clanak (najranije objavljen) za temu u prozoru
+                first = await pg.fetchrow(
+                    f"""
+                    SELECT a.id, a.source_id, a.published_at, COALESCE(s.has_timestamp_time, TRUE) AS exact
+                    FROM articles a
+                    JOIN article_analysis aa ON aa.article_id = a.id
+                    JOIN sources s ON s.source_id = a.source_id
+                    WHERE aa.primary_topic = $1 AND a.published_at >= NOW() - INTERVAL '{window_days} days'
+                    ORDER BY a.published_at ASC
+                    LIMIT 1
+                    """,
+                    topic,
+                )
+                if not first:
+                    continue
+                # spread samo preko exact-time izvora
+                spread = await pg.fetchrow(
+                    f"""
+                    SELECT EXTRACT(EPOCH FROM (MAX(a.published_at) - MIN(a.published_at)))/3600.0 AS hours
+                    FROM articles a
+                    JOIN article_analysis aa ON aa.article_id = a.id
+                    JOIN sources s ON s.source_id = a.source_id
+                    WHERE aa.primary_topic = $1 AND a.published_at >= NOW() - INTERVAL '{window_days} days'
+                      AND COALESCE(s.has_timestamp_time, TRUE) = TRUE
+                    """,
+                    topic,
+                )
+                narrative_id = await pg.fetchval(
+                    f"""
+                    SELECT an.narrative_id FROM article_narratives an
+                    JOIN articles a ON a.id = an.article_id
+                    JOIN article_analysis aa ON aa.article_id = a.id
+                    WHERE aa.primary_topic = $1 AND a.published_at >= NOW() - INTERVAL '{window_days} days'
+                    GROUP BY an.narrative_id ORDER BY COUNT(*) DESC LIMIT 1
+                    """,
+                    topic,
+                )
+                # dedup: obrisi prethodni origin za temu (rolling)
+                await pg.execute("DELETE FROM origin_tracking WHERE topic = $1", topic)
+                await pg.execute(
+                    """INSERT INTO origin_tracking
+                       (topic, first_article_id, first_source_id, first_published_at, has_exact_time,
+                        total_coverage, spread_hours, narrative_id, detected_at)
+                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())""",
+                    topic, first["id"], first["source_id"], first["published_at"], bool(first["exact"]),
+                    t["coverage"], float(spread["hours"]) if spread and spread["hours"] is not None else None,
+                    narrative_id,
+                )
+                created += 1
+            return {"topics_tracked": created}
+        finally:
+            await pg.close()
+
+    result = _run_async(_run())
+    logger.info("detect_origin zavrsen: %s", result)
+    return result
+
+
 @celery.task(name="pipeline.tasks.detect_coordination")
 def detect_coordination():
     """
