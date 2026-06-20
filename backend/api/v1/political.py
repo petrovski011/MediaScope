@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
-from api.deps import get_current_user, get_db
+from api.deps import get_current_user, get_db, parse_date
 
 router = APIRouter(prefix="/political", tags=["political"])
 
@@ -32,9 +32,9 @@ async def political_actors(
     params = {"limit": limit}
     df = ""
     if date_from:
-        df += " AND a.published_at >= :date_from"; params["date_from"] = date_from
+        df += " AND a.published_at >= :date_from"; params["date_from"] = parse_date(date_from)
     if date_to:
-        df += " AND a.published_at <= :date_to"; params["date_to"] = date_to
+        df += " AND a.published_at <= :date_to"; params["date_to"] = parse_date(date_to)
 
     rows = (await db.execute(text(f"""
         WITH src_align AS (
@@ -88,9 +88,9 @@ async def meta_framing(
     params = {}
     df = ""
     if date_from:
-        df += " AND a.published_at >= :date_from"; params["date_from"] = date_from
+        df += " AND a.published_at >= :date_from"; params["date_from"] = parse_date(date_from)
     if date_to:
-        df += " AND a.published_at <= :date_to"; params["date_to"] = date_to
+        df += " AND a.published_at <= :date_to"; params["date_to"] = parse_date(date_to)
 
     by_source = (await db.execute(text(f"""
         SELECT a.source_id,

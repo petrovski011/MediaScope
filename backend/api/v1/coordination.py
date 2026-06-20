@@ -19,7 +19,7 @@ from database import get_db
 from models.articles import Article
 from models.sources import Source
 from models.analysis import ArticleAnalysis
-from api.deps import get_current_user
+from api.deps import get_current_user, parse_date
 from config import settings
 
 router = APIRouter(prefix="/coordination", tags=["coordination"])
@@ -62,9 +62,9 @@ async def find_copy_paste_groups(
     """
     params = {"threshold": thr, "limit": limit}
     if date_from:
-        cc_sql += " AND a.published_at >= :date_from"; params["date_from"] = date_from
+        cc_sql += " AND a.published_at >= :date_from"; params["date_from"] = parse_date(date_from)
     if date_to:
-        cc_sql += " AND a.published_at <= :date_to"; params["date_to"] = date_to
+        cc_sql += " AND a.published_at <= :date_to"; params["date_to"] = parse_date(date_to)
     if src_ids:
         cc_sql += " AND (a.source_id = ANY(:srcs) OR b.source_id = ANY(:srcs))"; params["srcs"] = src_ids
     cc_sql += " ORDER BY cc.similarity_score DESC LIMIT :limit"
@@ -156,9 +156,9 @@ async def find_framing_coordination(
     if src_ids:
         q = q.where(Article.source_id.in_(src_ids))
     if date_from:
-        q = q.where(Article.published_at >= date_from)
+        q = q.where(Article.published_at >= parse_date(date_from))
     if date_to:
-        q = q.where(Article.published_at <= date_to)
+        q = q.where(Article.published_at <= parse_date(date_to))
 
     q = (
         q.group_by(func.date(Article.published_at), ArticleAnalysis.primary_topic)
@@ -316,9 +316,9 @@ async def coordination_network(
     cp_where = ""
     params = {}
     if date_from:
-        cp_where += " AND cc.detected_at >= :date_from"; params["date_from"] = date_from
+        cp_where += " AND cc.detected_at >= :date_from"; params["date_from"] = parse_date(date_from)
     if date_to:
-        cp_where += " AND cc.detected_at <= :date_to"; params["date_to"] = date_to
+        cp_where += " AND cc.detected_at <= :date_to"; params["date_to"] = parse_date(date_to)
     cp = (await db.execute(text(f"""
         SELECT a.source_id AS sa, b.source_id AS sb, cc.similarity_score AS s
         FROM coordination_copypaste cc
@@ -333,9 +333,9 @@ async def coordination_network(
         gw = ""
         gp = {}
         if date_from:
-            gw += " AND date >= :date_from"; gp["date_from"] = date_from
+            gw += " AND date >= :date_from"; gp["date_from"] = parse_date(date_from)
         if date_to:
-            gw += " AND date <= :date_to"; gp["date_to"] = date_to
+            gw += " AND date <= :date_to"; gp["date_to"] = parse_date(date_to)
         grows = (await db.execute(text(f"SELECT source_ids, coordination_score FROM {tbl} WHERE 1=1 {gw}"), gp)).all()
         for r in grows:
             srcs = list(r.source_ids or [])

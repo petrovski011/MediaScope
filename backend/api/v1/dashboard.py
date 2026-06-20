@@ -12,7 +12,7 @@ from database import get_db
 from models.articles import Article
 from models.sources import Source
 from models.analysis import ArticleAnalysis, ArticleEntity, Entity
-from api.deps import get_current_user
+from api.deps import get_current_user, parse_date
 from config import settings
 from pipeline.summary import REDIS_KEY
 
@@ -20,12 +20,13 @@ router = APIRouter(tags=["dashboard"])
 
 
 def _apply_filters(q, src_ids, date_from, date_to):
+    from api.deps import parse_date
     if src_ids:
         q = q.where(Article.source_id.in_(src_ids))
     if date_from:
-        q = q.where(Article.published_at >= date_from)
+        q = q.where(Article.published_at >= parse_date(date_from))
     if date_to:
-        q = q.where(Article.published_at <= date_to)
+        q = q.where(Article.published_at <= parse_date(date_to))
     return q
 
 
@@ -181,9 +182,9 @@ async def list_entities(
     if src_ids:
         q = q.where(Article.source_id.in_(src_ids))
     if date_from:
-        q = q.where(Article.published_at >= date_from)
+        q = q.where(Article.published_at >= parse_date(date_from))
     if date_to:
-        q = q.where(Article.published_at <= date_to)
+        q = q.where(Article.published_at <= parse_date(date_to))
 
     q = q.group_by(Entity.id, Entity.name, Entity.entity_type, Entity.is_political_actor)
     q = q.order_by(desc("total_mentions")).limit(limit)
@@ -234,9 +235,9 @@ async def topics_timeline(
     if src_ids:
         q = q.where(Article.source_id.in_(src_ids))
     if date_from:
-        q = q.where(Article.published_at >= date_from)
+        q = q.where(Article.published_at >= parse_date(date_from))
     if date_to:
-        q = q.where(Article.published_at <= date_to)
+        q = q.where(Article.published_at <= parse_date(date_to))
     if topic_list:
         q = q.where(ArticleAnalysis.primary_topic.in_(topic_list))
 
@@ -332,12 +333,13 @@ async def intraday_distribution(
     jer im je sat nepouzdan. UI mora da prikaze ovu napomenu.
     """
     from sqlalchemy import text
+    from api.deps import parse_date
     params = {}
     df = ""
     if date_from:
-        df += " AND a.published_at >= :date_from"; params["date_from"] = date_from
+        df += " AND a.published_at >= :date_from"; params["date_from"] = parse_date(date_from)
     if date_to:
-        df += " AND a.published_at <= :date_to"; params["date_to"] = date_to
+        df += " AND a.published_at <= :date_to"; params["date_to"] = parse_date(date_to)
 
     # top 6 tema
     top = (await db.execute(text(f"""

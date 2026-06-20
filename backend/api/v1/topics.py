@@ -7,7 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
-from api.deps import get_current_user, get_db
+from api.deps import get_current_user, get_db, parse_date
 from services.analytics_service import (
     topic_coverage, topic_framing_split, METHODOLOGY_SILENCE_NOTE,
 )
@@ -26,9 +26,9 @@ async def list_topics(
     params = {}
     df = ""
     if date_from:
-        df += " AND a.published_at >= :date_from"; params["date_from"] = date_from
+        df += " AND a.published_at >= :date_from"; params["date_from"] = parse_date(date_from)
     if date_to:
-        df += " AND a.published_at <= :date_to"; params["date_to"] = date_to
+        df += " AND a.published_at <= :date_to"; params["date_to"] = parse_date(date_to)
 
     rows = (await db.execute(text(f"""
         SELECT aa.primary_topic AS topic,

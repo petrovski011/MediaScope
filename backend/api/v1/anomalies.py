@@ -7,7 +7,7 @@ from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
-from api.deps import get_current_user, require_role, get_db
+from api.deps import get_current_user, require_role, get_db, parse_date
 from models.coordination import Anomaly, PeriodType
 
 router = APIRouter(prefix="/anomalies", tags=["anomalies"])
@@ -26,9 +26,9 @@ async def list_anomalies(
     if anomaly_type:
         q = q.where(Anomaly.anomaly_type == anomaly_type)
     if date_from:
-        q = q.where(Anomaly.date >= date_from)
+        q = q.where(Anomaly.date >= parse_date(date_from))
     if date_to:
-        q = q.where(Anomaly.date <= date_to)
+        q = q.where(Anomaly.date <= parse_date(date_to))
     q = q.limit(limit)
     rows = (await db.execute(q)).scalars().all()
     return {

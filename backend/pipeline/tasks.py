@@ -434,7 +434,7 @@ def detect_copypaste():
             alerts_created = 0
             if high:
                 from datetime import date
-                today = date.today().isoformat()
+                today = date.today()  # date objekat — asyncpg ga prima za DATE kolone; f-string daje YYYY-MM-DD
                 # grupa: broj distinct izvora ukljucenih u visoke parove
                 srcs = set()
                 for p in high:
@@ -540,8 +540,8 @@ def detect_alerts():
         from datetime import date, timedelta
         pg = await asyncpg.connect(PG_DSN)
         try:
-            today = date.today().isoformat()
-            yesterday = (date.today() - timedelta(days=1)).isoformat()
+            today = date.today()  # date objekat — asyncpg ga prima za DATE kolone; f-string daje YYYY-MM-DD
+            yesterday = date.today() - timedelta(days=1)
             alerts_created = 0
 
             async def _alert_exists(alert_type: str, alert_date: str) -> bool:
@@ -776,7 +776,7 @@ def detect_coordination():
         from datetime import date
         pg = await asyncpg.connect(PG_DSN)
         try:
-            today = date.today().isoformat()
+            today = date.today()  # date objekat — asyncpg ga prima za DATE kolone; f-string daje YYYY-MM-DD
             og = {r["source_id"]: r["owner_group"] for r in await pg.fetch("SELECT source_id, owner_group FROM sources")}
 
             def same_owner(srcs):
@@ -892,13 +892,13 @@ def detect_anomalies():
         from datetime import date
         pg = await asyncpg.connect(PG_DSN)
         try:
-            today = date.today().isoformat()
+            today = date.today()  # date objekat — asyncpg ga prima za DATE kolone; f-string daje YYYY-MM-DD
             created = 0
 
             # aktivni period (izborni/krizni/miran) za kontekst
             period = await pg.fetchval(
                 "SELECT period_type FROM period_types WHERE $1 BETWEEN date_from AND date_to ORDER BY id DESC LIMIT 1",
-                today,
+                today.isoformat(),  # period_types.date_from/to su VARCHAR — poredi kao tekst (ISO sortira korektno)
             )
             period_note = f" [period: {period}]" if period else ""
 

@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, BigInteger, Integer, String, Boolean, Text,
-    DateTime, ARRAY, Float, ForeignKey, UniqueConstraint
+    DateTime, Date, ARRAY, Float, ForeignKey, UniqueConstraint
 )
 from sqlalchemy.sql import func
 
@@ -193,7 +193,7 @@ class NarrativeDailyIntensity(Base):
     id = Column(BigInteger, primary_key=True)
     narrative_id = Column(Integer, ForeignKey("narratives.id"), nullable=False)
     source_id = Column(String(20), ForeignKey("sources.source_id"))
-    date = Column(String(10), nullable=False)  # DATE as string YYYY-MM-DD
+    date = Column(Date, nullable=False)
     article_count = Column(Integer, nullable=False, default=0)
     avg_confidence = Column(Float)
     intensity_score = Column(Float)

@@ -3,11 +3,27 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, date
 
 from config import settings
 from database import get_db
 from models.users import User
+
+
+def parse_date(s):
+    """Konvertuje opcioni ISO string (YYYY-MM-DD ili duzi) u date objekat.
+
+    asyncpg odbija string param za DATE/timestamptz kolone — mora date objekat.
+    Vraca None za prazan ulaz; ignorise neispravan format.
+    """
+    if not s:
+        return None
+    if isinstance(s, date):
+        return s
+    try:
+        return date.fromisoformat(str(s)[:10])
+    except ValueError:
+        return None
 
 bearer_scheme = HTTPBearer()
 

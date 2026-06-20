@@ -8,6 +8,8 @@ from typing import Optional
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.deps import parse_date
+
 METHODOLOGY_SILENCE_NOTE = (
     "Tišina se računa samo nad skrejpovanim i analiziranim člancima. "
     "Odsustvo pokrivenosti ne mora značiti namernu cenzuru."
@@ -38,9 +40,9 @@ async def topic_coverage(
     params = {"topic": topic}
     df = ""
     if date_from:
-        df += " AND a.published_at >= :date_from"; params["date_from"] = date_from
+        df += " AND a.published_at >= :date_from"; params["date_from"] = parse_date(date_from)
     if date_to:
-        df += " AND a.published_at <= :date_to"; params["date_to"] = date_to
+        df += " AND a.published_at <= :date_to"; params["date_to"] = parse_date(date_to)
 
     # po izvoru: broj clanaka na temi + prosek politickog skora + dominantni framing
     per_source = (await db.execute(text(f"""
@@ -85,9 +87,9 @@ async def topic_framing_split(
     params = {"topic": topic}
     df = ""
     if date_from:
-        df += " AND a.published_at >= :date_from"; params["date_from"] = date_from
+        df += " AND a.published_at >= :date_from"; params["date_from"] = parse_date(date_from)
     if date_to:
-        df += " AND a.published_at <= :date_to"; params["date_to"] = date_to
+        df += " AND a.published_at <= :date_to"; params["date_to"] = parse_date(date_to)
 
     overall = (await db.execute(text(f"""
         SELECT ft.name AS framing, COUNT(*) AS cnt, AVG(af.confidence) AS avg_conf

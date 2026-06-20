@@ -13,20 +13,21 @@ from models.analysis import (
     ArticleFraming, FramingType, Topic, ArticleNarrative, Narrative,
     CalibrationFeedback,
 )
-from api.deps import get_current_user, require_role, PaginationParams
+from api.deps import get_current_user, require_role, PaginationParams, parse_date
 
 router = APIRouter(prefix="/articles", tags=["articles"])
 
 
 def _build_article_filters(q, source_ids, date_from, date_to, topic, narrative_id,
                             political_score_min, political_score_max, has_analysis, search):
+    from api.deps import parse_date
     if source_ids:
         ids = [s.strip() for s in source_ids.split(",")]
         q = q.where(Article.source_id.in_(ids))
     if date_from:
-        q = q.where(Article.published_at >= date_from)
+        q = q.where(Article.published_at >= parse_date(date_from))
     if date_to:
-        q = q.where(Article.published_at <= date_to)
+        q = q.where(Article.published_at <= parse_date(date_to))
     if search:
         q = q.where(
             or_(Article.title.ilike(f"%{search}%"), Article.text_content.ilike(f"%{search}%"))
@@ -62,9 +63,9 @@ async def list_articles(
     if source_ids:
         q = q.where(Article.source_id.in_([s.strip() for s in source_ids.split(",")]))
     if date_from:
-        q = q.where(Article.published_at >= date_from)
+        q = q.where(Article.published_at >= parse_date(date_from))
     if date_to:
-        q = q.where(Article.published_at <= date_to)
+        q = q.where(Article.published_at <= parse_date(date_to))
     if search:
         q = q.where(
             func.to_tsvector("simple", func.coalesce(Article.title, "") + " " + func.coalesce(Article.text_content, ""))

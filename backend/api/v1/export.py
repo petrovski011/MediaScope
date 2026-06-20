@@ -14,7 +14,7 @@ from database import get_db
 from models.articles import Article
 from models.sources import Source
 from models.analysis import ArticleAnalysis
-from api.deps import require_role
+from api.deps import require_role, parse_date
 from config import settings
 
 router = APIRouter(prefix="/export", tags=["export"])
@@ -51,9 +51,9 @@ async def export_articles_csv(
         ids = [s.strip() for s in source_ids.split(",") if s.strip()]
         q = q.where(Article.source_id.in_(ids))
     if date_from:
-        q = q.where(Article.published_at >= date_from)
+        q = q.where(Article.published_at >= parse_date(date_from))
     if date_to:
-        q = q.where(Article.published_at <= date_to)
+        q = q.where(Article.published_at <= parse_date(date_to))
     if search:
         q = q.where(or_(Article.title.ilike(f"%{search}%"), Article.text_content.ilike(f"%{search}%")))
     if topic:
