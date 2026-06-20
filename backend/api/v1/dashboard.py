@@ -279,6 +279,64 @@ async def get_daily_summary(
     return None
 
 
+@router.get("/intraday")
+async def intraday_distribution(
+    date_from: Optional[str] = Query(default=None),
+    date_to: Optional[str] = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Distribucija clanaka po satu dana, po top temama.
+
+    ISKLJUCUJE izvore bez tacnog vremena (RTS, Tanjug — has_timestamp_time=FALSE),
+    jer im je sat nepouzdan. UI mora da prikaze ovu napomenu.
+    """
+    from sqlalchemy import text
+    params = {}
+    df = ""
+    if date_from:
+        df += " AND a.published_at >= :date_from"; params["date_from"] = date_from
+    if date_to:
+        df += " AND a.published_at <= :date_to"; params["date_to"] = date_to
+
+    # top 6 tema
+    top = (await db.execute(text(f"""
+        SELECT aa.primary_topic AS topic, COUNT(*) AS c
+        FROM article_analysis aa JOIN articles a ON a.id=aa.article_id
+        JOIN sources s ON s.source_id=a.source_id
+        WHERE COALESCE(s.has_timestamp_time, TRUE) = TRUE AND aa.primary_topic IS NOT NULL {df}
+        GROUP BY aa.primary_topic ORDER BY c DESC LIMIT 6
+    """), params)).all()
+    top_topics = [r.topic for r in top]
+
+    rows = (await db.execute(text(f"""
+        SELECT EXTRACT(HOUR FROM a.published_at)::int AS hour, aa.primary_topic AS topic, COUNT(*) AS c
+        FROM article_analysis aa JOIN articles a ON a.id=aa.article_id
+        JOIN sources s ON s.source_id=a.source_id
+        WHERE COALESCE(s.has_timestamp_time, TRUE) = TRUE AND aa.primary_topic IS NOT NULL {df}
+        GROUP BY hour, aa.primary_topic
+    """), params)).all()
+
+    # bucket po satu
+    buckets = {h: {"hour": h} for h in range(24)}
+    for r in rows:
+        if r.topic in top_topics:
+            buckets[r.hour][r.topic] = (buckets[r.hour].get(r.topic, 0) + r.c)
+
+    excluded = [r.source_id for r in (await db.execute(text(
+        "SELECT source_id FROM sources WHERE COALESCE(has_timestamp_time, TRUE) = FALSE"
+    ))).all()]
+
+    return {
+        "hourly": [buckets[h] for h in range(24)],
+        "topics": top_topics,
+        "intraday_note": {
+            "excluded_sources": excluded,
+            "reason": "RTS i Tanjug nemaju tačno vreme objave — samo datum.",
+        },
+    }
+
+
 @router.post("/summary/generate")
 async def trigger_summary_generation(
     target_date: Optional[str] = Query(default=None),

@@ -5,6 +5,38 @@ import { useFilters, toParams } from '../store/filters'
 import { useNavigate } from 'react-router-dom'
 import api from '../lib/api'
 
+const INTRADAY_COLORS = ['#6366f1', '#3b82f6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444']
+
+function IntradayCard({ filterParams }) {
+  const { data } = useQuery({
+    queryKey: ['intraday', filterParams],
+    queryFn: () => api.get(`/intraday?${filterParams}`).then(r => r.data),
+  })
+  if (!data?.hourly) return null
+  const topics = data.topics || []
+  const hasData = data.hourly.some(h => topics.some(t => h[t]))
+  if (!hasData) return null
+
+  return (
+    <div className="rounded-xl p-4 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+      <h2 className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Intra-day distribucija (po satu)</h2>
+      <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+        Bez {(data.intraday_note?.excluded_sources || []).join(', ') || 'RTS/Tanjug'} — {data.intraday_note?.reason}
+      </p>
+      <ResponsiveContainer width="100%" height={220}>
+        <BarChart data={data.hourly} margin={{ left: 0, right: 8 }}>
+          <XAxis dataKey="hour" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
+          <YAxis tick={{ fontSize: 10, fill: 'var(--text-muted)' }} width={28} />
+          <Tooltip contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
+          {topics.map((t, i) => (
+            <Bar key={t} dataKey={t} stackId="a" fill={INTRADAY_COLORS[i % INTRADAY_COLORS.length]} />
+          ))}
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
+
 function MorningSummary() {
   const { data, isLoading } = useQuery({
     queryKey: ['morning-summary'],
@@ -226,6 +258,8 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+
+      <IntradayCard filterParams={filterParams} />
 
       {/* Poslednji analizirani clanci */}
       <div className="rounded-xl border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
