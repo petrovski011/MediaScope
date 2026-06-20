@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Newspaper, Radio, TrendingUp, LogOut, Activity, Settings, Bell, Layers } from 'lucide-react'
+import { LayoutDashboard, Newspaper, Radio, TrendingUp, LogOut, Activity, Settings, Bell, Layers, Hash } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '../store/auth'
 import GlobalFilters from './GlobalFilters'
@@ -10,6 +10,7 @@ const nav = [
   { to: '/articles',   icon: Newspaper,       label: 'Članci' },
   { to: '/sources',    icon: Radio,           label: 'Izvori' },
   { to: '/narratives', icon: TrendingUp,      label: 'Narativi' },
+  { to: '/topics',     icon: Hash,            label: 'Teme' },
   { to: '/framing',    icon: Layers,          label: 'Framing' },
 ]
 
