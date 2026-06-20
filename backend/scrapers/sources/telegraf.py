@@ -73,9 +73,14 @@ class TelegrafScraper(BaseScraper):
             # Mora imati bar 2 segmenta (kategorija + slug)
             if len(segments) < 2:
                 continue
-            if segments[0] in SKIP_SEGMENTS:
+            # Preskoci ako BILO KOJI segment pripada navigacijskim/pravnim stranama
+            # (npr. /redakcija/uslovi-koriscenja, /uslovi-koriscenja/...) — ne samo prvi
+            if any(seg in SKIP_SEGMENTS for seg in segments):
                 continue
             if any(s in u for s in SKIP_SUBSTRINGS):
+                continue
+            # Dodatna zastita: pravne/navigacijske reci bilo gde u putanji
+            if any(w in path.lower() for w in ("uslovi-koriscenja", "politika-privatnosti", "impressum", "uslovi-koriscenja-sajta")):
                 continue
             # Slug (zadnji segment) mora biti dugačak (ne kratki navigacijski)
             slug = segments[-1]

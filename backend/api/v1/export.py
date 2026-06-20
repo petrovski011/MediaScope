@@ -22,7 +22,8 @@ router = APIRouter(prefix="/export", tags=["export"])
 TOPIC_LABELS = {
     "POLITIKA": "Politika", "EU_INTEGRACIJE": "EU integracije", "KOSOVO": "Kosovo",
     "EKONOMIJA": "Ekonomija", "INFRASTRUKTURA": "Infrastruktura", "BEZBEDNOST": "Bezbednost",
-    "MEDIJI_SLOBODA": "Mediji i sloboda", "PROTEST": "Protest", "KULTURA": "Kultura", "SPORT": "Sport",
+    "MEDIJSKE_SLOBODE": "Medijske slobode", "MEDIJI_SLOBODA": "Medijske slobode",
+    "PROTEST": "Protest", "KULTURA": "Kultura", "ZABAVA_I_ESTRADA": "Zabava i estrada", "SPORT": "Sport",
     "HRONIKA": "Hronika", "ZDRAVLJE": "Zdravlje", "OBRAZOVANJE": "Obrazovanje",
     "SPOLJNA_POLITIKA": "Spoljna politika", "LOKALNA_VLAST": "Lokalna vlast", "DRUSTVO": "Drustvo",
 }

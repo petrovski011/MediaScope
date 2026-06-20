@@ -1,9 +1,9 @@
 import json
 from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc, cast, Integer
+from sqlalchemy import select, func, desc, cast, Integer, text
 from typing import Optional
 
 import redis as redis_lib
@@ -12,7 +12,8 @@ from database import get_db
 from models.articles import Article
 from models.sources import Source
 from models.analysis import ArticleAnalysis, ArticleEntity, Entity
-from api.deps import get_current_user, parse_date
+from api.deps import get_current_user, parse_date, require_role
+from api.v1.researcher_log import log_action
 from config import settings
 from pipeline.summary import REDIS_KEY
 
@@ -155,13 +156,16 @@ async def list_entities(
     date_from: Optional[str] = Query(default=None),
     date_to: Optional[str] = Query(default=None),
     entity_type: Optional[str] = Query(default=None),
-    limit: int = Query(default=30, ge=1, le=100),
+    search: Optional[str] = Query(default=None),
+    sort_by: str = Query(default="total_mentions"),
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=10, ge=1, le=100),
     current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     src_ids = _parse_source_ids(source_ids)
 
-    q = (
+    base = (
         select(
             Entity.id,
             Entity.name,
@@ -178,18 +182,26 @@ async def list_entities(
     )
 
     if entity_type:
-        q = q.where(Entity.entity_type == entity_type)
+        base = base.where(Entity.entity_type == entity_type)
     if src_ids:
-        q = q.where(Article.source_id.in_(src_ids))
+        base = base.where(Article.source_id.in_(src_ids))
     if date_from:
-        q = q.where(Article.published_at >= parse_date(date_from))
+        base = base.where(Article.published_at >= parse_date(date_from))
     if date_to:
-        q = q.where(Article.published_at <= parse_date(date_to))
+        base = base.where(Article.published_at <= parse_date(date_to))
+    if search:
+        base = base.where(Entity.name.ilike(f"%{search}%"))
 
-    q = q.group_by(Entity.id, Entity.name, Entity.entity_type, Entity.is_political_actor)
-    q = q.order_by(desc("total_mentions")).limit(limit)
+    base = base.group_by(Entity.id, Entity.name, Entity.entity_type, Entity.is_political_actor)
 
-    rows = (await db.execute(q)).all()
+    sort_col = "total_mentions" if sort_by not in ("total_mentions", "article_count", "source_count", "name") else sort_by
+    if sort_col == "name":
+        base = base.order_by(Entity.name)
+    else:
+        base = base.order_by(desc(sort_col))
+
+    total = await db.scalar(select(func.count()).select_from(base.subquery()))
+    rows = (await db.execute(base.limit(per_page).offset((page - 1) * per_page))).all()
 
     return {
         "items": [
@@ -205,8 +217,61 @@ async def list_entities(
                 "subject_count": r.subject_count or 0,
             }
             for r in rows
-        ]
+        ],
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "pages": (total + per_page - 1) // per_page if total else 1,
     }
+
+
+@router.get("/entities/{entity_id}/mentions")
+async def entity_mentions(
+    entity_id: int,
+    limit: int = Query(default=20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Citati: pominjanja entiteta sa kontekstom, izvorom, datumom i sentimentom."""
+    rows = (await db.execute(text("""
+        SELECT a.id, a.title, a.source_id, a.published_at,
+               ae.context_snippet, ae.sentiment, ae.mention_count
+        FROM article_entities ae
+        JOIN articles a ON a.id = ae.article_id
+        WHERE ae.entity_id = :eid
+        ORDER BY a.published_at DESC NULLS LAST
+        LIMIT :limit
+    """), {"eid": entity_id, "limit": limit})).all()
+    return {"mentions": [{
+        "article_id": r.id, "title": r.title, "source_id": r.source_id,
+        "published_at": r.published_at.isoformat() if r.published_at else None,
+        "context_snippet": r.context_snippet, "sentiment": r.sentiment,
+        "mention_count": r.mention_count,
+    } for r in rows]}
+
+
+@router.patch("/entities/{entity_id}")
+async def update_entity(
+    entity_id: int,
+    data: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_role("researcher", "admin")),
+):
+    """Izmena entiteta (ime, tip, opis, politicki akter) — istrazivac/admin."""
+    ent = await db.get(Entity, entity_id)
+    if not ent:
+        raise HTTPException(404, "Entitet nije pronađen")
+    old_name = (ent.name or "")[:100]
+    for f in ("name", "entity_type", "description"):
+        if f in data and data[f] is not None:
+            setattr(ent, f, data[f])
+    if "is_political_actor" in data:
+        ent.is_political_actor = bool(data["is_political_actor"])
+    log_action(db, user=current_user, action_type="edit", entity_type="entity",
+               entity_id=entity_id, old_status=old_name, new_status=(ent.name or "")[:100])
+    await db.commit()
+    return {"id": ent.id, "name": ent.name, "entity_type": ent.entity_type,
+            "is_political_actor": ent.is_political_actor}
 
 
 @router.get("/topics/timeline")
@@ -329,8 +394,8 @@ async def intraday_distribution(
 ):
     """Distribucija clanaka po satu dana, po top temama.
 
-    ISKLJUCUJE izvore bez tacnog vremena (RTS, Tanjug — has_timestamp_time=FALSE),
-    jer im je sat nepouzdan. UI mora da prikaze ovu napomenu.
+    ISKLJUCUJE izvore bez tacnog vremena (has_timestamp_time=FALSE u sources tabeli),
+    jer im je sat nepouzdan. UI prikazuje listu iskljucenih izvora.
     """
     from sqlalchemy import text
     from api.deps import parse_date
@@ -374,7 +439,7 @@ async def intraday_distribution(
         "topics": top_topics,
         "intraday_note": {
             "excluded_sources": excluded,
-            "reason": "RTS i Tanjug nemaju tačno vreme objave — samo datum.",
+            "reason": "Prikazuju se samo članci sa tačnim vremenom objave (published_at uključuje sat).",
         },
     }
 

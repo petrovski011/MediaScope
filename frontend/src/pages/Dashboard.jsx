@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
-import { Newspaper, Radio, TrendingUp, Activity, Sun } from 'lucide-react'
+import { Newspaper, Radio, TrendingUp, Sun } from 'lucide-react'
 import { useFilters, toParams } from '../store/filters'
 import { useNavigate } from 'react-router-dom'
 import api from '../lib/api'
@@ -22,7 +22,10 @@ function IntradayCard({ filterParams }) {
     <div className="rounded-xl p-4 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
       <h2 className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Intra-day distribucija (po satu)</h2>
       <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
-        Bez {(data.intraday_note?.excluded_sources || []).join(', ') || 'RTS/Tanjug'} — {data.intraday_note?.reason}
+        {data.intraday_note?.excluded_sources?.length
+          ? `Bez ${data.intraday_note.excluded_sources.join(', ')} — ${data.intraday_note.reason}`
+          : 'Samo članci sa poznatim tačnim vremenom objave'
+        }
       </p>
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={data.hourly} margin={{ left: 0, right: 8 }}>
@@ -61,7 +64,7 @@ function MorningSummary() {
       <div className="px-4 py-3 border-b flex items-center gap-2" style={{ borderColor: 'var(--border)' }}>
         <Sun size={14} style={{ color: '#f59e0b' }} />
         <h2 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-          {selectedDate ? 'Dnevni pregled' : 'Jutarnji pregled'} — {data.date}
+          Dnevni pregled — {data.date}
         </h2>
         {summaries.length > 1 && (
           <select value={selectedDate || ''} onChange={e => setSelectedDate(e.target.value || null)}
@@ -142,7 +145,8 @@ function PoliticalBar({ score, source, count }) {
 const TOPIC_LABELS = {
   POLITIKA: 'Politika', EU_INTEGRACIJE: 'EU', KOSOVO: 'Kosovo',
   EKONOMIJA: 'Ekonomija', INFRASTRUKTURA: 'Infrastruktura', BEZBEDNOST: 'Bezbednost',
-  MEDIJI_SLOBODA: 'Mediji', PROTEST: 'Protest', KULTURA: 'Kultura', SPORT: 'Sport',
+  MEDIJSKE_SLOBODE: 'Med. slobode', MEDIJI_SLOBODA: 'Med. slobode',
+  PROTEST: 'Protest', KULTURA: 'Kultura', ZABAVA_I_ESTRADA: 'Zabava', SPORT: 'Sport',
   HRONIKA: 'Hronika', ZDRAVLJE: 'Zdravlje', OBRAZOVANJE: 'Obrazovanje',
   SPOLJNA_POLITIKA: 'Spoljna pol.', LOKALNA_VLAST: 'Lokalna vlast', DRUSTVO: 'Društvo',
 }
@@ -182,7 +186,7 @@ export default function Dashboard() {
       <MorningSummary />
 
       {/* Stat kartice */}
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <StatCard icon={Newspaper} label="Ukupno članaka" value={stats?.total?.toLocaleString()} sub="u bazi" />
         <StatCard
           icon={TrendingUp} label="Analizirano"
@@ -191,12 +195,6 @@ export default function Dashboard() {
           accent={stats?.pipeline_pct === 100 ? '#22c55e' : '#f59e0b'}
         />
         <StatCard icon={Radio} label="Aktivnih izvora" value={stats?.active_sources} sub="srpskih medija" />
-        <StatCard
-          icon={Activity} label="Pipeline"
-          value={stats?.pipeline_pct === 100 ? 'Završen' : `${stats?.pipeline_pct ?? 0}%`}
-          sub={stats?.pipeline_pct === 100 ? 'AI analiza kompletna' : 'Analiza u toku'}
-          accent={stats?.pipeline_pct === 100 ? '#22c55e' : '#f59e0b'}
-        />
       </div>
 
       <div className="grid grid-cols-2 gap-4">

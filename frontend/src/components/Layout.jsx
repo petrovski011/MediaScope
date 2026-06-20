@@ -1,21 +1,21 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Newspaper, Radio, TrendingUp, LogOut, Activity, Settings, Bell, Layers, Hash, Zap, Share2, Landmark, BookOpen } from 'lucide-react'
+import { LayoutDashboard, Newspaper, Radio, TrendingUp, LogOut, Activity, Settings, Bell, Layers, Hash, Zap, Share2, Landmark, BookOpen, ClipboardList } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '../store/auth'
 import GlobalFilters from './GlobalFilters'
 import api from '../lib/api'
 
 const nav = [
-  { to: '/',           icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/articles',   icon: Newspaper,       label: 'Članci' },
-  { to: '/sources',    icon: Radio,           label: 'Izvori' },
-  { to: '/narratives', icon: TrendingUp,      label: 'Narativi' },
-  { to: '/topics',     icon: Hash,            label: 'Teme' },
-  { to: '/framing',    icon: Layers,          label: 'Framing' },
-  { to: '/anomalies',  icon: Zap,             label: 'Anomalije' },
-  { to: '/coordination', icon: Share2,        label: 'Koordinacija' },
-  { to: '/political',  icon: Landmark,        label: 'Politička' },
-  { to: '/metodologija', icon: BookOpen,      label: 'Metodologija' },
+  { to: '/',             icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/sources',      icon: Radio,           label: 'Izvori' },
+  { to: '/articles',     icon: Newspaper,       label: 'Članci' },
+  { to: '/topics',       icon: Hash,            label: 'Teme' },
+  { to: '/framing',      icon: Layers,          label: 'Framing' },
+  { to: '/narratives',   icon: TrendingUp,      label: 'Narativi' },
+  { to: '/anomalies',    icon: Zap,             label: 'Anomalije' },
+  { to: '/coordination', icon: Share2,          label: 'Koordinacija' },
+  { to: '/political',    icon: Landmark,        label: 'Politička' },
+  { to: '/metodologija', icon: BookOpen,        label: 'Metodologija' },
 ]
 
 function PipelineStatus() {
@@ -106,6 +106,15 @@ export default function Layout() {
             </NavLink>
           ))}
           <AlertsNavItem />
+          {(user?.role === 'admin' || user?.role === 'researcher') && (
+            <NavLink to="/istrazivacki-log"
+              className={({ isActive }) =>
+                `flex items-center gap-2.5 px-3 py-2 rounded-md text-sm transition-colors ${
+                  isActive ? 'bg-white/10 text-white' : 'text-[var(--text-secondary)] hover:text-white hover:bg-white/5'
+                }`}>
+              <ClipboardList size={15} />Log
+            </NavLink>
+          )}
           {user?.role === 'admin' && (
             <NavLink to="/admin"
               className={({ isActive }) =>

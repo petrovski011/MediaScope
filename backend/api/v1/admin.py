@@ -325,6 +325,55 @@ async def run_calibration(current_user=_require_admin):
     return {"status": "queued"}
 
 
+class TriggerRequest(BaseModel):
+    task_name: str
+
+
+ALLOWED_TASKS = {
+    "detect_anomalies",
+    "detect_coordination",
+    "detect_copypaste",
+    "generate_daily_summary",
+    "consolidate_narrative_proposals",
+    "generate_embeddings",
+}
+
+
+@router.post("/tasks/trigger")
+async def trigger_task(req: TriggerRequest, current_user=_require_admin):
+    if req.task_name not in ALLOWED_TASKS:
+        raise HTTPException(status_code=400, detail=f"Nedozvoljen task: {req.task_name}. Dozvoljeni: {sorted(ALLOWED_TASKS)}")
+    from pipeline import tasks as pipeline_tasks
+    task_fn = getattr(pipeline_tasks, req.task_name, None)
+    if task_fn is None:
+        raise HTTPException(status_code=500, detail=f"Task '{req.task_name}' nije pronađen u pipeline.tasks")
+    task_fn.delay()
+    return {"status": "queued", "task_name": req.task_name, "message": f"Task '{req.task_name}' je pokrenutan."}
+
+
+@router.get("/system/resources")
+async def system_resources(current_user=_require_admin):
+    try:
+        import psutil
+        import shutil
+        disk = shutil.disk_usage("/")
+        mem = psutil.virtual_memory()
+        cpu = psutil.cpu_percent(interval=0.5)
+        return {
+            "disk_total_gb": round(disk.total / 1e9, 1),
+            "disk_used_gb": round(disk.used / 1e9, 1),
+            "disk_free_gb": round(disk.free / 1e9, 1),
+            "disk_pct": round(disk.used / disk.total * 100, 1),
+            "ram_total_gb": round(mem.total / 1e9, 1),
+            "ram_used_gb": round(mem.used / 1e9, 1),
+            "ram_free_gb": round(mem.available / 1e9, 1),
+            "ram_pct": round(mem.percent, 1),
+            "cpu_pct": round(cpu, 1),
+        }
+    except ImportError:
+        raise HTTPException(status_code=503, detail="psutil nije instaliran")
+
+
 class ReanalyzeRequest(BaseModel):
     date_from: Optional[str] = None
     date_to: Optional[str] = None

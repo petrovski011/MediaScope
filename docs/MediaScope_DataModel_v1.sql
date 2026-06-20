@@ -41,25 +41,30 @@ CREATE TABLE sources (
 
 -- Seed podaci za sve izvore
 INSERT INTO sources (source_id, name, url, owner, owner_group, media_type, scraper_method, has_timestamp_time, has_author, has_category, cloudflare, notes) VALUES
-('n1',        'N1',           'https://n1info.rs',          'United Media',          'United Media',  'portal',     'rss',          TRUE,  TRUE,  TRUE,  TRUE,  'Nema slike na delu clanaka'),
-('blic',      'Blic',         'https://www.blic.rs',        'Ringier',               'Strani privatni','portal',     'rss',          TRUE,  TRUE,  TRUE,  FALSE, 'Ring Publishing CMS, 7 RSS feedova'),
-('telegraf',  'Telegraf',     'https://www.telegraf.rs',    'Nezavisan',             'Nezavisan',     'portal',     'rss_html',     TRUE,  TRUE,  TRUE,  FALSE, 'Schema.org kompletan'),
-('kurir',     'Kurir',        'https://www.kurir.rs',       'Adria Media',           'Strani privatni','portal',     'rss',          TRUE,  TRUE,  FALSE, FALSE, 'Nema category'),
-('sd',        'Srbija danas', 'https://www.sd.rs',          'Nezavisan',             'Nezavisan',     'portal',     'rss',          TRUE,  FALSE, TRUE,  FALSE, 'Deo kratkih tekstova'),
-('rts',       'RTS',          'https://www.rts.rs',         'Javni servis',          'Drzavni',       'portal',     'html_listing', FALSE, FALSE, TRUE,  FALSE, 'Timestamp bez vremena - samo datum'),
-('nova',      'Nova',         'https://nova.rs',            'United Media',          'United Media',  'portal',     'rss',          TRUE,  TRUE,  FALSE, TRUE,  '~13% praznih tekstova'),
-('informer',  'Informer',     'https://informer.rs',        'Dragan J. Vucicevic',   'Domaci privatni','portal',     'html_listing', TRUE,  TRUE,  TRUE,  FALSE, 'Komentar count dostupan'),
-('danas',     'Danas',        'https://www.danas.rs',       'United Media',          'United Media',  'portal',     'rss',          TRUE,  TRUE,  TRUE,  TRUE,  NULL),
-('b92',       'B92',          'https://www.b92.net',        'United Media',          'United Media',  'portal',     'rss',          TRUE,  TRUE,  TRUE,  FALSE, 'Author = rubrika/agencija na delu'),
-('mondo',     'Mondo',        'https://mondo.rs',           'Telekom Srbija',        'Telekom',       'portal',     'html_listing', TRUE,  TRUE,  TRUE,  FALSE, 'SSR Nuxt'),
-('pink',      'Pink',         'https://pink.rs',            'Pink Media Group',      'Domaci privatni','tv_portal',  'html_listing', TRUE,  FALSE, TRUE,  FALSE, '~20% bez teksta; nema autora'),
-('birn',      'BIRN',         'https://birn.rs',            'NGO/Nezavisan',         'NGO',           'portal',     'rss',          TRUE,  TRUE,  TRUE,  TRUE,  'Manji obim, istrazivacki medij'),
-('radar',     'Radar',        'https://radar.nova.rs',      'United Media',          'United Media',  'portal',     'wp_api',       TRUE,  FALSE, TRUE,  TRUE,  'Redirect na radar.nova.rs; WordPress'),
-('prva',      'Prva TV',      'https://www.prva.rs',        'Antenna Group',         'Strani privatni','tv_portal',  'rss_html',     TRUE,  FALSE, TRUE,  FALSE, 'Nema autora'),
+-- Vlasnistvo azurirano jun 2026 na osnovu istrazivanja (visoka pouzdanost)
+-- B92/Prva: Kopernikus Corp (Srdan Milovanovic) od 2018 — NIJE United/Antenna
+-- N1/Nova/Danas/Radar: Adria News Network (rebranding United Media, feb 2026); prodaja Alpac Capital pending H2 2026
+-- Tanjug: privatizovan 2021, Tacno d.o.o. — state-adjacent finansiranje
+-- Telegraf: Veselin Jevrosimovic (srednja pouzdanost)
+('n1',        'N1',           'https://n1info.rs',          'Adria News Network (United Group → Alpac Capital, pending H2 2026)', 'Adria News Network', 'portal', 'rss', TRUE,  TRUE,  TRUE,  TRUE,  'Nema slike na delu clanaka'),
+('blic',      'Blic',         'https://www.blic.rs',        'Ringier Axel Springer',  'Ringier',       'portal',     'rss',          TRUE,  TRUE,  TRUE,  FALSE, 'Ring Publishing CMS, 7 RSS feedova'),
+('telegraf',  'Telegraf',     'https://www.telegraf.rs',    'Veselin Jevrosimović',  'Privatni srpski','portal',     'rss_html',     TRUE,  TRUE,  TRUE,  FALSE, 'Schema.org kompletan. Vlasnik: srednja pouzdanost'),
+('kurir',     'Kurir',        'https://www.kurir.rs',       'Aleksandar Rodić',      'Privatni srpski','portal',     'rss',          TRUE,  TRUE,  FALSE, FALSE, 'Nema category. Vlasnik: proveriti'),
+('sd',        'Srbija danas', 'https://www.sd.rs',          'Goran Lalić',           'Privatni srpski','portal',     'rss',          TRUE,  FALSE, TRUE,  FALSE, 'Deo kratkih tekstova; pro-vladinski editorial'),
+('rts',       'RTS',          'https://www.rts.rs',         'Javni servis',          'Drzavni',       'portal',     'rss',          TRUE,  FALSE, TRUE,  FALSE, 'RSS feed — timestamp tacan od jun 2026'),
+('nova',      'Nova',         'https://nova.rs',            'Adria News Network (United Group → Alpac Capital, pending H2 2026)', 'Adria News Network', 'portal', 'rss', TRUE, TRUE, FALSE, TRUE, '~13% praznih tekstova'),
+('informer',  'Informer',     'https://informer.rs',        'Alo Media System',      'Privatni srpski','portal',     'html_listing', TRUE,  TRUE,  TRUE,  FALSE, 'Komentar count dostupan. Vlasnik: srednja pouzdanost'),
+('danas',     'Danas',        'https://www.danas.rs',       'Adria News Network (United Group → Alpac Capital, pending H2 2026)', 'Adria News Network', 'portal', 'rss', TRUE, TRUE, TRUE, TRUE, NULL),
+('b92',       'B92',          'https://www.b92.net',        'Kopernikus Corporation (Srđan Milovanović)', 'Kopernikus Media', 'portal', 'rss', TRUE,  TRUE,  TRUE,  FALSE, 'Kupljeno od United Media 2018. Cyprus-registered Kopernikus Corp'),
+('mondo',     'Mondo',        'https://mondo.rs',           'Telekom Srbija',        'Telekom',       'portal',     'html_listing', TRUE,  TRUE,  TRUE,  FALSE, 'SSR Nuxt. Vlasnik: proveriti'),
+('pink',      'Pink',         'https://pink.rs',            'Željko Mitrović',       'Privatni srpski','tv_portal',  'html_listing', TRUE,  FALSE, TRUE,  FALSE, '~20% bez teksta; nema autora'),
+('birn',      'BIRN',         'https://birn.rs',            'Balkan Investigative Reporting Network', 'NGO', 'portal', 'rss', TRUE, TRUE, TRUE, TRUE, 'Manji obim, istrazivacki medij'),
+('radar',     'Radar',        'https://radar.nova.rs',      'Adria News Network (United Group → Alpac Capital, pending H2 2026)', 'Adria News Network', 'portal', 'wp_api', TRUE, FALSE, TRUE, TRUE, 'Redirect na radar.nova.rs; WordPress'),
+('prva',      'Prva TV',      'https://www.prva.rs',        'Kopernikus Corporation (Srđan Milovanović)', 'Kopernikus Media', 'tv_portal', 'rss_html', TRUE, FALSE, TRUE, FALSE, 'Nema autora. Isti vlasnik kao B92'),
 ('juzne',     'Juzne vesti',  'https://www.juznevesti.com', 'Regionalni/Nezavisan',  'Nezavisan',     'portal',     'stub',         TRUE,  TRUE,  TRUE,  TRUE,  'STUB - Cloudflare JS challenge'),
 ('vreme',     'Vreme',        'https://www.vreme.rs',       'Nezavisan',             'Nezavisan',     'weekly',     'rss',          TRUE,  TRUE,  TRUE,  TRUE,  'Nedeljnik - 15-20 clanaka nedeljno'),
 ('insajder',  'Insajder',     'https://insajder.net',       'Nezavisan',             'Nezavisan',     'portal',     'rss',          TRUE,  FALSE, FALSE, TRUE,  'Nema autora ni category'),
-('tanjug',    'Tanjug',       'https://www.tanjug.rs',      'Drzava',                'Drzavni',       'agency',     'html_listing', FALSE, TRUE,  TRUE,  FALSE, 'Timestamp bez vremena; kljucan za origin tracking'),
+('tanjug',    'Tanjug',       'https://www.tanjug.rs',      'Tačno d.o.o. (RTV Pančevo 60%, Minacord/Joksimović 40%)', 'Privatni srpski', 'agency', 'html_listing', TRUE, TRUE, TRUE, FALSE, 'Privatizovan 2021. State-adjacent finansiranje. Tačan timestamp od jun 2026'),
 ('politika',  'Politika',     'https://www.politika.rs',    'Drzava/PKB',            'Drzavni',       'portal',     'html_listing', TRUE,  TRUE,  TRUE,  FALSE, 'Rate-limit na bulk fetchu');
 
 -- ============================================================

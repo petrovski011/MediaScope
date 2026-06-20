@@ -8,13 +8,14 @@ import api from '../lib/api'
 
 const TOPICS = [
   'POLITIKA','EU_INTEGRACIJE','KOSOVO','EKONOMIJA','INFRASTRUKTURA',
-  'BEZBEDNOST','MEDIJI_SLOBODA','PROTEST','KULTURA','SPORT','HRONIKA',
-  'ZDRAVLJE','OBRAZOVANJE','SPOLJNA_POLITIKA','LOKALNA_VLAST','DRUSTVO',
+  'BEZBEDNOST','MEDIJSKE_SLOBODE','MEDIJI_SLOBODA','PROTEST','KULTURA','ZABAVA_I_ESTRADA',
+  'SPORT','HRONIKA','ZDRAVLJE','OBRAZOVANJE','SPOLJNA_POLITIKA','LOKALNA_VLAST','DRUSTVO',
 ]
 const TOPIC_LABELS = {
   POLITIKA:'Politika', EU_INTEGRACIJE:'EU integracije', KOSOVO:'Kosovo',
   EKONOMIJA:'Ekonomija', INFRASTRUKTURA:'Infrastruktura', BEZBEDNOST:'Bezbednost',
-  MEDIJI_SLOBODA:'Mediji i sloboda', PROTEST:'Protest', KULTURA:'Kultura', SPORT:'Sport',
+  MEDIJSKE_SLOBODE:'Medijske slobode', MEDIJI_SLOBODA:'Medijske slobode',
+  PROTEST:'Protest', KULTURA:'Kultura', ZABAVA_I_ESTRADA:'Zabava i estrada', SPORT:'Sport',
   HRONIKA:'Hronika', ZDRAVLJE:'Zdravlje', OBRAZOVANJE:'Obrazovanje',
   SPOLJNA_POLITIKA:'Spoljna politika', LOKALNA_VLAST:'Lokalna vlast', DRUSTVO:'Društvo',
 }
@@ -46,17 +47,24 @@ export default function Articles() {
 
   const entityId = searchParams.get('entity_id')
   const entityName = searchParams.get('entity_name')
+  const entitySentiment = searchParams.get('entity_sentiment')
+  const framingTypeId = searchParams.get('framing_type_id')
+  const framingName = searchParams.get('framing_name')
+  const urlSourceIds = searchParams.get('source_ids')
 
-  useEffect(() => { setPage(1) }, [dateFrom, dateTo, selectedSources.join(','), entityId])
+  useEffect(() => { setPage(1) }, [dateFrom, dateTo, selectedSources.join(','), entityId, entitySentiment, framingTypeId, urlSourceIds])
 
   const params = new URLSearchParams({ page, per_page: 25, ...globalParams })
   if (search) params.set('search', search)
   if (topic) params.set('topic', topic)
   if (hasAnalysis) params.set('has_analysis', hasAnalysis)
   if (entityId) params.set('entity_id', entityId)
+  if (entitySentiment) params.set('entity_sentiment', entitySentiment)
+  if (framingTypeId) params.set('framing_type_id', framingTypeId)
+  if (urlSourceIds) params.set('source_ids', urlSourceIds)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['articles', page, search, topic, hasAnalysis, dateFrom, dateTo, selectedSources.join(','), entityId],
+    queryKey: ['articles', page, search, topic, hasAnalysis, dateFrom, dateTo, selectedSources.join(','), entityId, entitySentiment, framingTypeId, urlSourceIds],
     queryFn: () => api.get(`/articles?${params}`).then(r => r.data),
     keepPreviousData: true,
   })
@@ -109,6 +117,15 @@ export default function Articles() {
                 </button>
               </span>
             )}
+            {framingName && (
+              <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border"
+                style={{ borderColor: '#8b5cf6', color: '#c4b5fd', background: 'rgba(139,92,246,0.1)' }}>
+                framing: {framingName}
+                <button onClick={() => setSearchParams({})} className="hover:text-white transition-colors ml-0.5">
+                  <X size={10} />
+                </button>
+              </span>
+            )}
           </div>
         </div>
         <button onClick={handleExport} disabled={exporting || !data?.total}
@@ -126,7 +143,7 @@ export default function Articles() {
             <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-muted)' }} />
             <input
               value={searchInput} onChange={e => setSearchInput(e.target.value)}
-              placeholder="Pretraži naslove..."
+              placeholder="Pretraži članke (naslov i tekst)..."
               className="w-full pl-8 pr-3 py-2 rounded-lg text-sm border outline-none"
               style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
             />

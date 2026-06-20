@@ -368,6 +368,122 @@ def generate_embeddings(limit: int = 500):
     return {"status": "ok", "embedded": len(items)}
 
 
+@celery.task(name="pipeline.tasks.consolidate_narrative_proposals")
+def consolidate_narrative_proposals(cosine_threshold: float = 0.3, batch_size: int = 1000):
+    """Klasteruje narativne predloge semantički koristeći pgvector cosine distance.
+
+    Za svaki neklastriran predlog:
+    1. Generiše embedding (name + description)
+    2. Traži najbliži pending klaster (cosine_distance < cosine_threshold)
+    3. Ako nađe: dodaje predlog u klaster, ažurira centroid (running average)
+    4. Ako ne nađe: kreira novi klaster
+    """
+    from pipeline.embeddings import embed_texts
+    import psycopg2
+
+    conn = psycopg2.connect(PG_DSN)
+    conn.autocommit = False
+    cur = conn.cursor()
+
+    try:
+        # Fetch unassigned pending proposals in batches
+        cur.execute("""
+            SELECT id, name, narrative_type, description
+            FROM narrative_proposals
+            WHERE status = 'pending' AND cluster_id IS NULL
+            ORDER BY id
+            LIMIT %s
+        """, (batch_size,))
+        proposals = cur.fetchall()
+
+        if not proposals:
+            conn.close()
+            return {"status": "ok", "clustered": 0}
+
+        # Generate embeddings for all at once (batch)
+        texts = [
+            f"{row[1]}. {row[3] or ''}".strip()
+            for row in proposals
+        ]
+        vectors = embed_texts(texts, is_query=False)
+
+        clustered = 0
+        new_clusters = 0
+
+        for (prop_id, name, ntype, desc), vec in zip(proposals, vectors):
+            vec_str = "[" + ",".join(f"{v:.6f}" for v in vec) + "]"
+
+            # Find nearest pending cluster
+            cur.execute("""
+                SELECT id, centroid_embedding, proposal_count
+                FROM narrative_clusters
+                WHERE status = 'pending'
+                ORDER BY centroid_embedding <=> %s::vector
+                LIMIT 1
+            """, (vec_str,))
+            row = cur.fetchone()
+
+            if row:
+                cluster_id, centroid, count = row
+                # Check actual distance
+                cur.execute("SELECT %s::vector <=> %s::vector", (vec_str, centroid))
+                dist = cur.fetchone()[0]
+
+                if dist < cosine_threshold:
+                    # Update centroid: running average, then re-normalize
+                    # new_centroid = (centroid * count + new_vec) / (count + 1)
+                    # We do this in Python for precision
+                    # centroid comes back as a list from psycopg2 with pgvector
+                    if isinstance(centroid, str):
+                        c_vals = [float(x) for x in centroid.strip("[]").split(",")]
+                    else:
+                        c_vals = list(centroid)
+
+                    new_count = count + 1
+                    new_centroid = [(c_vals[i] * count + vec[i]) / new_count for i in range(len(vec))]
+                    # Re-normalize
+                    norm = sum(x*x for x in new_centroid) ** 0.5
+                    if norm > 0:
+                        new_centroid = [x / norm for x in new_centroid]
+                    new_centroid_str = "[" + ",".join(f"{v:.6f}" for v in new_centroid) + "]"
+
+                    cur.execute("""
+                        UPDATE narrative_clusters
+                        SET proposal_count = %s,
+                            centroid_embedding = %s::vector,
+                            last_seen = now()
+                        WHERE id = %s
+                    """, (new_count, new_centroid_str, cluster_id))
+                    cur.execute("UPDATE narrative_proposals SET cluster_id = %s, embedding = %s::vector WHERE id = %s",
+                                (cluster_id, vec_str, prop_id))
+                    clustered += 1
+                    conn.commit()
+                    continue
+
+            # No suitable cluster — create new one
+            cur.execute("""
+                INSERT INTO narrative_clusters (representative_name, narrative_type, centroid_embedding, proposal_count, status, first_seen, last_seen)
+                VALUES (%s, %s, %s::vector, 1, 'pending', now(), now())
+                RETURNING id
+            """, (name, ntype or "thematic", vec_str))
+            new_cluster_id = cur.fetchone()[0]
+            cur.execute("UPDATE narrative_proposals SET cluster_id = %s, embedding = %s::vector WHERE id = %s",
+                        (new_cluster_id, vec_str, prop_id))
+            new_clusters += 1
+            conn.commit()
+
+        logger.info("consolidate_narrative_proposals: %d assigned, %d new clusters", clustered, new_clusters)
+        return {"status": "ok", "clustered": clustered, "new_clusters": new_clusters}
+
+    except Exception as e:
+        conn.rollback()
+        logger.error("consolidate_narrative_proposals failed: %s", e)
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
 @celery.task(name="pipeline.tasks.detect_copypaste")
 def detect_copypaste():
     """Pravi copy-paste detekcija preko pgvector cosine slicnosti (lokalni embeddingi).
@@ -627,8 +743,8 @@ def detect_alerts():
                        (t.today_cnt / NULLIF(b.avg_cnt, 0)) AS ratio
                 FROM today t
                 JOIN baseline b ON b.topic = t.topic
-                WHERE t.today_cnt / NULLIF(b.avg_cnt, 0) >= 2.5
-                  AND b.avg_cnt >= 3
+                WHERE t.today_cnt / NULLIF(b.avg_cnt, 0) >= 2.0
+                  AND b.avg_cnt >= 2
                 ORDER BY ratio DESC
                 LIMIT 5
                 """,
@@ -797,7 +913,7 @@ def detect_coordination():
                 JOIN article_analysis aa ON aa.article_id = a.id
                 WHERE a.published_at >= NOW() - INTERVAL '24 hours' AND aa.primary_topic IS NOT NULL
                 GROUP BY aa.primary_topic, af.framing_type_id
-                HAVING COUNT(DISTINCT a.source_id) >= 3
+                HAVING COUNT(DISTINCT a.source_id) >= 2
                 """
             )
             for r in fr_rows:
@@ -831,7 +947,7 @@ def detect_coordination():
                 JOIN narratives n ON n.id = an.narrative_id
                 WHERE a.published_at >= NOW() - INTERVAL '48 hours'
                 GROUP BY an.narrative_id, n.name
-                HAVING COUNT(DISTINCT a.source_id) >= 3
+                HAVING COUNT(DISTINCT a.source_id) >= 2
                 """
             )
             for r in nr_rows:
@@ -950,13 +1066,13 @@ def detect_anomalies():
                 SELECT t.topic, t.cnt AS today_cnt, b.avg_cnt,
                        (t.cnt/NULLIF(b.avg_cnt,0)) AS ratio
                 FROM tod t JOIN base b ON b.topic=t.topic
-                WHERE b.avg_cnt >= 3
+                WHERE b.avg_cnt >= 2
                 """
             )
             for r in topic_rows:
                 ratio = float(r["ratio"]) if r["ratio"] else 0
                 dev = (ratio - 1) * 100
-                if ratio >= 2.5:
+                if ratio >= 2.0:
                     await _save_anomaly("topic_spike",
                         f"Topic spike: {r['topic']} {int(dev)}% iznad 7d proseka ({r['today_cnt']} vs {r['avg_cnt']:.1f})",
                         topic=r["topic"], baseline=float(r["avg_cnt"]), detected=float(r["today_cnt"]),
@@ -1217,7 +1333,7 @@ def generate_morning_summary(self, target_date: str = None):
     if not settings.ANTHROPIC_API_KEY:
         return {"status": "skipped", "reason": "no_api_key"}
 
-    target = date.fromisoformat(target_date) if target_date else date.today()
+    target = date.fromisoformat(target_date) if target_date else date.today() - timedelta(days=1)
     redis_key = REDIS_KEY.format(date=target.isoformat())
 
     r = _redis()

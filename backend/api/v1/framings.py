@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
 from api.deps import get_current_user, require_role, get_db
+from api.v1.researcher_log import log_action
 from models.analysis import Topic, FramingType, FramingTypeProposal, ArticleFraming
 
 router = APIRouter(prefix="/framing", tags=["framing"])
@@ -167,7 +168,7 @@ async def list_proposals(
     rows = await db.execute(
         select(FramingTypeProposal, Topic.key.label("topic_key"))
         .outerjoin(Topic, Topic.id == FramingTypeProposal.topic_id)
-        .where(FramingTypeProposal.status == status)
+        .where(FramingTypeProposal.status == status, FramingTypeProposal.occurrences >= 3)
         .order_by(desc(FramingTypeProposal.occurrences), desc(FramingTypeProposal.created_at))
     )
     return {
@@ -212,6 +213,8 @@ async def approve_proposal(
     p.status = "approved"
     p.reviewed_by = current_user.id
     p.reviewed_at = datetime.now(timezone.utc)
+    log_action(db, user=current_user, action_type="approve", entity_type="framing_proposal",
+               entity_id=proposal_id, old_status="pending", new_status="approved")
     await db.commit()
     return {"id": p.id, "status": "approved"}
 
@@ -228,5 +231,7 @@ async def reject_proposal(
     p.status = "rejected"
     p.reviewed_by = current_user.id
     p.reviewed_at = datetime.now(timezone.utc)
+    log_action(db, user=current_user, action_type="reject", entity_type="framing_proposal",
+               entity_id=proposal_id, old_status="pending", new_status="rejected")
     await db.commit()
     return {"id": p.id, "status": "rejected"}

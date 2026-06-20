@@ -2,6 +2,7 @@ from sqlalchemy import (
     Column, BigInteger, Integer, String, Boolean, Text,
     DateTime, Date, ARRAY, Float, ForeignKey, UniqueConstraint
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 
 from database import Base
@@ -61,6 +62,12 @@ class ArticleAnalysis(Base):
     populist_framing = Column(Boolean, default=False)
     populist_confidence = Column(Float)
 
+    # Propaganda detekcija (Sprint 4)
+    propaganda_techniques = Column(JSONB, nullable=True)
+    propaganda_confidence = Column(Float, nullable=True)
+    propaganda_targets = Column(JSONB, nullable=True)
+    analysis_confidence = Column(Float, nullable=True)
+
 
 class Entity(Base):
     __tablename__ = "entities"
@@ -87,6 +94,7 @@ class ArticleEntity(Base):
     is_quoted = Column(Boolean, default=False)
     is_subject = Column(Boolean, default=False)
     context_snippet = Column(Text)
+    sentiment = Column(Float, nullable=True)  # sentiment pominjanja akteru (-1 neg, 0 neutral, +1 poz)
 
     __table_args__ = (UniqueConstraint("article_id", "entity_id"),)
 
@@ -128,6 +136,21 @@ class FramingTypeProposal(Base):
     reviewed_by = Column(Integer, ForeignKey("users.id"))
     reviewed_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class NarrativeCluster(Base):
+    """Semantički klaster narativnih predloga — grupiše slične AI predloge."""
+    __tablename__ = "narrative_clusters"
+
+    id = Column(BigInteger, primary_key=True)
+    representative_name = Column(String(500), nullable=False)
+    narrative_type = Column(String(50), nullable=False, default="thematic")
+    centroid_embedding = _embedding_col(768)
+    proposal_count = Column(Integer, nullable=False, default=0)
+    status = Column(String(20), nullable=False, default="pending")
+    accepted_narrative_id = Column(Integer, ForeignKey("narratives.id"), nullable=True)
+    first_seen = Column(DateTime(timezone=True), server_default=func.now())
+    last_seen = Column(DateTime(timezone=True), server_default=func.now())
 
 
 class ArticleFraming(Base):
@@ -173,6 +196,8 @@ class NarrativeProposal(Base):
     reviewed_by = Column(Integer, ForeignKey("users.id"))
     reviewed_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    embedding = _embedding_col(768)
+    cluster_id = Column(BigInteger, ForeignKey("narrative_clusters.id"), nullable=True)
 
 
 class ArticleNarrative(Base):
@@ -240,3 +265,16 @@ class ArticleEmbedding(Base):
     embedding = _embedding_col(768)  # lokalni e5-base (Faza 3)
     model_used = Column(String(100))
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class TopicProposal(Base):
+    """AI predlozi novih tema (NOVA_TEMA: X iz pipeline-a). Istraživač validira."""
+    __tablename__ = "topic_proposals"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    proposed_key = Column(String(100), nullable=False)
+    article_count = Column(Integer, nullable=False, default=1)
+    first_seen = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    last_seen = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    status = Column(String(20), nullable=False, default="pending")
+    accepted_topic_id = Column(Integer, ForeignKey("topics.id"), nullable=True)

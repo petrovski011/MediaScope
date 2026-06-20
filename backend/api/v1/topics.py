@@ -2,12 +2,15 @@
 
 Silence analiza (sta mediji NE pokrivaju) je metodoloski jedan od najvaznijih slojeva.
 """
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy import text
+from fastapi import APIRouter, Depends, Query, HTTPException
+from pydantic import BaseModel
+from sqlalchemy import text, select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
-from api.deps import get_current_user, get_db, parse_date
+from api.deps import get_current_user, require_role, get_db, parse_date
+from api.v1.researcher_log import log_action
+from models.analysis import TopicProposal, Topic
 from services.analytics_service import (
     topic_coverage, topic_framing_split, METHODOLOGY_SILENCE_NOTE,
 )
@@ -86,8 +89,8 @@ async def get_topic_framing(
 
 
 ORIGIN_NOTE = (
-    "Tanjug i RTS nemaju tačno vreme objave — datum je pouzdan, sat nije. "
-    "Kada je prvi izvor bez tačnog vremena, redosled unutar dana nije siguran."
+    "Stariji arhivski članci (pre juna 2026.) nemaju published_at — isključeni su iz ove analize. "
+    "Redosled unutar dana je pouzdan samo za članke sa tačnim timestampom."
 )
 
 
@@ -141,3 +144,82 @@ async def get_topic_origin(
         ],
         "origin_note": ORIGIN_NOTE,
     }
+
+
+# ─── Topic proposals (NOVA_TEMA iz pipeline-a) ───────────────────────────────
+
+class AcceptProposalRequest(BaseModel):
+    label_sr: str
+
+
+@router.get("/proposals")
+async def list_topic_proposals(
+    status: str = Query(default="pending"),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    rows = (await db.execute(
+        select(TopicProposal)
+        .where(TopicProposal.status == status, TopicProposal.article_count >= 3)
+        .order_by(desc(TopicProposal.article_count))
+    )).scalars().all()
+    return {
+        "proposals": [
+            {
+                "id": r.id, "key": r.proposed_key, "count": r.article_count,
+                "first_seen": r.first_seen.isoformat() if r.first_seen else None,
+                "last_seen": r.last_seen.isoformat() if r.last_seen else None,
+                "status": r.status,
+            }
+            for r in rows
+        ]
+    }
+
+
+@router.post("/proposals/{proposal_id}/accept")
+async def accept_topic_proposal(
+    proposal_id: int,
+    body: AcceptProposalRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_role("researcher", "admin")),
+):
+    proposal = await db.get(TopicProposal, proposal_id)
+    if not proposal:
+        raise HTTPException(status_code=404, detail="Predlog nije pronađen")
+    if proposal.status != "pending":
+        raise HTTPException(status_code=400, detail="Predlog nije u statusu 'pending'")
+
+    # Proveri da li tema već postoji
+    existing = (await db.execute(
+        select(Topic).where(Topic.key == proposal.proposed_key)
+    )).scalar_one_or_none()
+
+    if existing:
+        topic = existing
+    else:
+        topic = Topic(key=proposal.proposed_key, label_sr=body.label_sr, is_active=True)
+        db.add(topic)
+        await db.flush()
+
+    proposal.status = "accepted"
+    proposal.accepted_topic_id = topic.id
+    log_action(db, user=current_user, action_type="accept", entity_type="topic_proposal",
+               entity_id=proposal_id, old_status="pending", new_status="accepted")
+    await db.commit()
+    return {"id": proposal_id, "accepted": True, "topic_key": topic.key, "topic_id": topic.id}
+
+
+@router.post("/proposals/{proposal_id}/reject")
+async def reject_topic_proposal(
+    proposal_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_role("researcher", "admin")),
+):
+    proposal = await db.get(TopicProposal, proposal_id)
+    if not proposal:
+        raise HTTPException(status_code=404, detail="Predlog nije pronađen")
+    proposal.status = "rejected"
+    log_action(db, user=current_user, action_type="reject", entity_type="topic_proposal",
+               entity_id=proposal_id, old_status="pending", new_status="rejected")
+    await db.commit()
+    return {"id": proposal_id, "rejected": True}

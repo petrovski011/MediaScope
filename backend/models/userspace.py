@@ -4,6 +4,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.sql import func
 
+
 from database import Base
 
 
@@ -51,4 +52,22 @@ class Annotation(Base):
     article_id = Column(BigInteger, ForeignKey("articles.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     body = Column(Text, nullable=False)
+    is_private = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class ResearcherAction(Base):
+    """Activity log — akcije istrazivaca (validacije, odbijanja, editi) sa opcijom reversa."""
+    __tablename__ = "researcher_actions"
+
+    id = Column(BigInteger, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    action_type = Column(String(50), nullable=False)  # validate_narrative, reject_framing, edit_entity, ...
+    entity_type = Column(String(50), nullable=False)  # narrative, framing_type, entity, annotation
+    entity_id = Column(BigInteger, nullable=True)
+    old_status = Column(String(100), nullable=True)
+    new_status = Column(String(100), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    reverted_at = Column(DateTime(timezone=True), nullable=True)

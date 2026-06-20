@@ -10,7 +10,7 @@ SYSTEM_PROMPT = """Ti si analiticar medijskog sadrzaja za SHARE Fondaciju, istra
 koja prati narative i propagandu u srpskim medijima.
 
 Analiziras clanke sa sledecih srpskih portala:
-- Pro-vladini/tabloidni: Informer, Kurir, Blic, Pink, SD, Srbija danas, Prva TV, Tanjug (drzavna agencija), RTS (javni servis)
+- Pro-vladini/tabloidni: Informer, Kurir, Blic, Pink, SD, Srbija danas, Prva TV, Tanjug (state-adjacent, privatizovan 2021), RTS (javni servis)
 - Nezavisni/opozicioni: N1, Nova, Danas, Radar, Vreme, Insajder, BIRN, Telegraf
 - Neutralni/mixes: B92, Mondo, Politika
 
@@ -18,7 +18,7 @@ Politicki kontekst Srbije (Jun 2026):
 - Vladajuca stranka: SNS (Aleksandar Vucic, predsednik)
 - Kljucni opozicioni akteri: SSP, Srpska stranka Zavetnici, koalicija Srbija protiv nasilja
 - Aktuelne teme: EU integracije, medijska sloboda, protesti, infrastrukturni projekti, Kosovo, ekonomija
-- Tanjug je drzavna novinska agencija - njeni tekstovi se preuzimaju na pro-vladinim portalima
+- Tanjug je privatizovana novinska agencija (2021) sa state-adjacent finansiranjem - njeni tekstovi se preuzimaju na pro-vladinim portalima
 
 Tvoj zadatak je objektivna analiza - ne interpretiras politicke stavove,
 vec identifikujes kako mediji izvestavaju i koje narative plasiraju.
@@ -167,12 +167,16 @@ Normalizuj varijante istog entiteta (Vucic = Aleksandar Vucic = predsednik Srbij
 Ne ukljucuj genericne pojmove ("vlada", "novinari") - samo konkretne aktere.
 Za svaki entitet oznaci is_political_actor (true ako je politicki akter: funkcioner, stranka,
 politicar, drzavna institucija, politicki relevantna licnost; inace false).
+Za svaki entitet proceni SENTIMENT pominjanja (-1.0 negativno, 0.0 neutralno, +1.0 pozitivno):
+Kako je konkretno ovaj entitet prikazan u tekstu — kritikovan, podrzan, neutralno opisan?
+Ovo je odvojeno od opšteg sentimenta clanka.
 
 ## 2. Tematska klasifikacija
 Odredi primarnu temu (jednu) i sekundarne (max 3) sa confidence scorovima.
 Koristi ove teme: POLITIKA, EU_INTEGRACIJE, KOSOVO, EKONOMIJA, INFRASTRUKTURA,
-BEZBEDNOST, MEDIJI_SLOBODA, PROTEST, KULTURA, SPORT, HRONIKA,
+BEZBEDNOST, MEDIJSKE_SLOBODE, PROTEST, KULTURA, ZABAVA_I_ESTRADA, SPORT, HRONIKA,
 ZDRAVLJE, OBRAZOVANJE, SPOLJNA_POLITIKA, LOKALNA_VLAST, DRUSTVO
+(KULTURA = pozoriste, film, knjizevnost, klasicna muzika; ZABAVA_I_ESTRADA = rijaliti, celebrity, folk, showbiz)
 
 Ako ne odgovara nijednoj, predlozi novu kao "NOVA_TEMA: NAZIV".
 
@@ -209,11 +213,12 @@ Pogledaj KATALOG FRAMING OKVIRA u sistemskim instrukcijama. Za framing vazi:
   (naziv u stilu "..._frame", opis, citat). Ne izmisljaj okvire bez osnova.
 - Ako nijedan okvir nije izrazit, vrati praznu listu.
 
-## 5b. Meta-framing: narod vs. elite (populisticki obrazac)
-Oceni da li clanak koristi populisticki "narod vs. elite" okvir — suprotstavljanje
-"obicnog naroda" / "nas" nasuprot "eliti" / "njima" (strane sile, tajkuni, opozicione elite,
-Brisel, "domaci izdajnici"). Vrati populist_framing (true/false) i populist_confidence (0.0-1.0).
-Ovo je transverzalni obrazac, nezavisan od konkretne teme.
+## 5b. Propagandne tehnike
+Identifikuj propagandne tehnike koje clanak eksplicitno koristi. Koristi ISKLJUCIVO:
+DEMONIZACIJA, DEZINFORMACIJA, CONSPIRACY_THEORY, FEAR_APPEAL, FALSE_DICHOTOMY,
+SCAPEGOATING, DEFAMATION, SMEAR_CAMPAIGN, WHATABOUTISM, CHERRY_PICKING, EMOTIONAL_APPEAL.
+Ako nema jasnih propagandnih tehnika — vrati praznu listu.
+propaganda_targets: lista entiteta koji su eksplicitna meta (po imenu, iz NER liste iznad).
 
 ## 5. Narativi
 Pogledaj KATALOG NARATIVA u sistemskim instrukcijama (ako postoji). Za narative vazi:
@@ -233,7 +238,8 @@ Vrati ISKLJUCIVO ovaj JSON (bez ikakvih objasnjenja van JSON-a):
       "mention_count": 3,
       "has_quote": true,
       "is_main_subject": true,
-      "is_political_actor": true
+      "is_political_actor": true,
+      "sentiment": 0.3
     }}
   ],
   "primary_topic": "EU_INTEGRACIJE",
@@ -241,7 +247,7 @@ Vrati ISKLJUCIVO ovaj JSON (bez ikakvih objasnjenja van JSON-a):
   "topic_explanation": "Clanak izvestava o pregovorima o pristupanju EU i uslovljenosti visa liberalizacijom.",
   "secondary_topics": [
     {{"topic": "POLITIKA", "confidence": 0.67}},
-    {{"topic": "MEDIJI_SLOBODA", "confidence": 0.54}}
+    {{"topic": "MEDIJSKE_SLOBODE", "confidence": 0.54}}
   ],
   "political_score": 0.72,
   "political_explanation": "Clanak prenosi zvanicne izjave predsednika bez kritickog konteksta i koristi formulacije 'Srbija pobeduje' i 'pritisci Zapada'.",
@@ -250,8 +256,9 @@ Vrati ISKLJUCIVO ovaj JSON (bez ikakvih objasnjenja van JSON-a):
   "sensationalism": 0.61,
   "sentiment": "negative",
   "sentiment_score": -0.55,
-  "populist_framing": true,
-  "populist_confidence": 0.74,
+  "propaganda_techniques": ["FEAR_APPEAL", "DEMONIZACIJA"],
+  "propaganda_confidence": 0.71,
+  "propaganda_targets": ["EU", "opozicija"],
   "framings": [
     {{"framing_type": "uslovljavanje_frame", "confidence": 0.82, "supporting_text": "...citat iz clanka..."}},
     {{"framing_type": "conflict_frame", "confidence": 0.61, "supporting_text": "...citat iz clanka..."}}

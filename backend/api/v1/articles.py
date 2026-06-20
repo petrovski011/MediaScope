@@ -42,7 +42,9 @@ async def list_articles(
     date_to: Optional[str] = Query(default=None),
     topic: Optional[str] = Query(default=None),
     entity_id: Optional[int] = Query(default=None),
+    entity_sentiment: Optional[str] = Query(default=None),  # positive|negative|neutral
     narrative_id: Optional[int] = Query(default=None),
+    framing_type_id: Optional[int] = Query(default=None),
     political_score_min: Optional[float] = Query(default=None),
     political_score_max: Optional[float] = Query(default=None),
     has_analysis: Optional[bool] = Query(default=None),
@@ -83,9 +85,18 @@ async def list_articles(
         q = q.where(ArticleAnalysis.political_score <= political_score_max)
     if entity_id:
         sub = select(ArticleEntity.article_id).where(ArticleEntity.entity_id == entity_id)
+        if entity_sentiment == "positive":
+            sub = sub.where(ArticleEntity.sentiment > 0.2)
+        elif entity_sentiment == "negative":
+            sub = sub.where(ArticleEntity.sentiment < -0.2)
+        elif entity_sentiment == "neutral":
+            sub = sub.where(ArticleEntity.sentiment.between(-0.2, 0.2))
         q = q.where(Article.id.in_(sub))
     if narrative_id:
         sub = select(ArticleNarrative.article_id).where(ArticleNarrative.narrative_id == narrative_id)
+        q = q.where(Article.id.in_(sub))
+    if framing_type_id:
+        sub = select(ArticleFraming.article_id).where(ArticleFraming.framing_type_id == framing_type_id)
         q = q.where(Article.id.in_(sub))
 
     count_q = select(func.count()).select_from(q.subquery())

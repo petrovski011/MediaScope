@@ -18,6 +18,7 @@ import Political from './pages/Political'
 import Methodology from './pages/Methodology'
 import Alerts from './pages/Alerts'
 import Admin from './pages/Admin'
+import ResearcherLog from './pages/ResearcherLog'
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000 } }
@@ -59,6 +60,7 @@ export default function App() {
             <Route path="metodologija" element={<Methodology />} />
             <Route path="alerts" element={<Alerts />} />
             <Route path="admin" element={<AdminGuard><Admin /></AdminGuard>} />
+            <Route path="istrazivacki-log" element={<ResearcherLog />} />
           </Route>
         </Routes>
       </BrowserRouter>

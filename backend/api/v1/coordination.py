@@ -124,74 +124,57 @@ async def find_copy_paste_groups(
 async def find_framing_coordination(
     date_from: Optional[str] = Query(default=None),
     date_to: Optional[str] = Query(default=None),
-    source_ids: Optional[str] = Query(default=None),
-    min_sources: int = Query(default=3, ge=2, le=20),
-    limit: int = Query(default=20, ge=1, le=50),
+    min_sources: int = Query(default=2, ge=2),
+    limit: int = Query(default=50),
     current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Pronalazi teme/dane gde 3+ izvora izvestavaju sa uskladjenim politickim skorem.
-    Koordinacija = ista tema, isti dan, skor u istom smeru (svi >0.3 ili svi <-0.3).
+    Pronalazi (tema, tip framinga) kombinacije koje vise izvora koristi.
+    Racuna se uzivo iz article_framings (af → articles → article_analysis → framing_types),
+    ista logika kao detect_coordination task. Vraca STVARNE tipove framinga
+    (threat_frame, victim_frame, conflict_frame, ...), ne politicki smer.
     """
-    src_ids = [s.strip() for s in source_ids.split(",") if s.strip()] if source_ids else None
-
-    q = (
-        select(
-            func.date(Article.published_at).label("date"),
-            ArticleAnalysis.primary_topic,
-            func.count(Article.source_id.distinct()).label("source_count"),
-            func.avg(ArticleAnalysis.political_score).label("avg_score"),
-            func.min(ArticleAnalysis.political_score).label("min_score"),
-            func.max(ArticleAnalysis.political_score).label("max_score"),
-            func.array_agg(Article.source_id.distinct()).label("sources"),
-        )
-        .join(ArticleAnalysis, Article.id == ArticleAnalysis.article_id)
-        .where(
-            ArticleAnalysis.primary_topic.isnot(None),
-            ArticleAnalysis.political_score.isnot(None),
-        )
-    )
-
-    if src_ids:
-        q = q.where(Article.source_id.in_(src_ids))
+    sql = """
+        SELECT aa.primary_topic AS topic,
+               ft.id AS framing_type_id,
+               ft.name AS framing_name,
+               COUNT(DISTINCT a.source_id) AS source_count,
+               ARRAY_AGG(DISTINCT a.source_id) AS sources,
+               AVG(af.confidence) AS avg_confidence,
+               COUNT(*) AS article_count
+        FROM article_framings af
+        JOIN articles a ON a.id = af.article_id
+        JOIN article_analysis aa ON aa.article_id = a.id
+        JOIN framing_types ft ON ft.id = af.framing_type_id
+        WHERE aa.primary_topic IS NOT NULL
+    """
+    params: dict = {"min_sources": min_sources, "limit": limit}
     if date_from:
-        q = q.where(Article.published_at >= parse_date(date_from))
+        sql += " AND a.published_at >= :date_from"; params["date_from"] = parse_date(date_from)
     if date_to:
-        q = q.where(Article.published_at <= parse_date(date_to))
+        sql += " AND a.published_at <= :date_to"; params["date_to"] = parse_date(date_to)
+    sql += """
+        GROUP BY aa.primary_topic, ft.id, ft.name
+        HAVING COUNT(DISTINCT a.source_id) >= :min_sources
+        ORDER BY source_count DESC, article_count DESC
+        LIMIT :limit
+    """
 
-    q = (
-        q.group_by(func.date(Article.published_at), ArticleAnalysis.primary_topic)
-        .having(func.count(Article.source_id.distinct()) >= min_sources)
-        .order_by(desc(func.count(Article.source_id.distinct())))
-        .limit(limit)
-    )
+    rows = (await db.execute(text(sql), params)).all()
 
-    rows = (await db.execute(q)).all()
-
-    groups = []
-    for r in rows:
-        avg = float(r.avg_score) if r.avg_score else 0
-        min_s = float(r.min_score) if r.min_score else 0
-        max_s = float(r.max_score) if r.max_score else 0
-        score_range = max_s - min_s
-
-        # Koordinisano = mali raspon skora + svi u istom smeru
-        is_coordinated = score_range < 0.4 and (
-            (min_s > settings.FRAMING_COORD_MIN_SCORE - 0.7) or
-            (max_s < -(settings.FRAMING_COORD_MIN_SCORE - 0.7))
-        )
-
-        groups.append({
-            "date": str(r.date),
-            "topic": r.primary_topic,
+    groups = [
+        {
+            "topic": r.topic,
+            "framing_type_id": r.framing_type_id,
+            "framing_name": r.framing_name,
             "source_count": r.source_count,
             "sources": list(r.sources) if r.sources else [],
-            "avg_political_score": round(avg, 3),
-            "score_range": round(score_range, 3),
-            "direction": "pro-vladino" if avg > 0.2 else "opoziciono" if avg < -0.2 else "neutralno",
-            "coordination_signal": is_coordinated,
-        })
+            "avg_confidence": round(float(r.avg_confidence), 3) if r.avg_confidence is not None else None,
+            "article_count": r.article_count,
+        }
+        for r in rows
+    ]
 
     return {
         "groups": groups,
@@ -360,5 +343,136 @@ async def coordination_network(
     return {
         "nodes": nodes,
         "edges": sorted(edge_list, key=lambda x: -x["weight"]),
+        "methodology_note": METHODOLOGY_NOTE,
+    }
+
+
+@router.get("/network/actors")
+async def network_actors(
+    date_from: Optional[str] = Query(default=None),
+    date_to: Optional[str] = Query(default=None),
+    limit: int = Query(default=20, ge=5, le=50),
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Matrica mediji × akteri — koliko puta svaki izvor pominje svakog aktera."""
+    from api.deps import parse_date
+    params: dict = {"limit": limit}
+    df = ""
+    if date_from:
+        df += " AND a.published_at >= :date_from"; params["date_from"] = parse_date(date_from)
+    if date_to:
+        df += " AND a.published_at <= :date_to"; params["date_to"] = parse_date(date_to)
+
+    rows = (await db.execute(text(f"""
+        SELECT a.source_id, e.name AS entity_name,
+               SUM(ae.mention_count) AS mentions
+        FROM article_entities ae
+        JOIN articles a ON a.id = ae.article_id
+        JOIN entities e ON e.id = ae.entity_id
+        WHERE e.is_political_actor = TRUE {df}
+        GROUP BY a.source_id, e.name
+        ORDER BY mentions DESC
+        LIMIT :limit * 5
+    """), params)).all()
+
+    top_entities = list(dict.fromkeys(r.entity_name for r in rows))[:limit]
+    top_sources = list(dict.fromkeys(r.source_id for r in rows))
+
+    matrix = {src: {ent: 0 for ent in top_entities} for src in top_sources}
+    for r in rows:
+        if r.entity_name in top_entities:
+            matrix[r.source_id][r.entity_name] = int(r.mentions)
+
+    return {
+        "sources": top_sources,
+        "entities": top_entities,
+        "matrix": matrix,
+        "methodology_note": METHODOLOGY_NOTE,
+    }
+
+
+@router.get("/network/topics")
+async def network_topics(
+    date_from: Optional[str] = Query(default=None),
+    date_to: Optional[str] = Query(default=None),
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Matrica mediji × teme — dominacija tematskog prostora po izvoru."""
+    from api.deps import parse_date
+    params: dict = {}
+    df = ""
+    if date_from:
+        df += " AND a.published_at >= :date_from"; params["date_from"] = parse_date(date_from)
+    if date_to:
+        df += " AND a.published_at <= :date_to"; params["date_to"] = parse_date(date_to)
+
+    rows = (await db.execute(text(f"""
+        SELECT a.source_id, aa.primary_topic AS topic,
+               COUNT(*) AS article_count
+        FROM article_analysis aa
+        JOIN articles a ON a.id = aa.article_id
+        WHERE aa.primary_topic IS NOT NULL {df}
+        GROUP BY a.source_id, aa.primary_topic
+        ORDER BY article_count DESC
+    """), params)).all()
+
+    top_topics = list(dict.fromkeys(r.topic for r in rows))[:20]
+    top_sources = list(dict.fromkeys(r.source_id for r in rows))
+
+    matrix = {src: {t: 0 for t in top_topics} for src in top_sources}
+    for r in rows:
+        if r.topic in top_topics:
+            matrix[r.source_id][r.topic] = int(r.article_count)
+
+    return {
+        "sources": top_sources,
+        "topics": top_topics,
+        "matrix": matrix,
+        "methodology_note": METHODOLOGY_NOTE,
+    }
+
+
+@router.get("/network/narratives")
+async def network_narratives(
+    date_from: Optional[str] = Query(default=None),
+    date_to: Optional[str] = Query(default=None),
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Matrica mediji × narativi — koji izvor širi koje narative."""
+    from api.deps import parse_date
+    params: dict = {}
+    df = ""
+    if date_from:
+        df += " AND a.published_at >= :date_from"; params["date_from"] = parse_date(date_from)
+    if date_to:
+        df += " AND a.published_at <= :date_to"; params["date_to"] = parse_date(date_to)
+
+    rows = (await db.execute(text(f"""
+        SELECT a.source_id, n.name AS narrative_name,
+               COUNT(*) AS article_count,
+               AVG(anm.confidence) AS avg_confidence
+        FROM article_narrative_matches anm
+        JOIN articles a ON a.id = anm.article_id
+        JOIN narratives n ON n.id = anm.narrative_id
+        WHERE n.is_validated = TRUE {df}
+        GROUP BY a.source_id, n.name
+        ORDER BY article_count DESC
+    """), params)).all()
+
+    top_narratives = list(dict.fromkeys(r.narrative_name for r in rows))[:15]
+    top_sources = list(dict.fromkeys(r.source_id for r in rows))
+
+    matrix = {src: {nar: 0 for nar in top_narratives} for src in top_sources}
+    for r in rows:
+        if r.narrative_name in top_narratives:
+            matrix[r.source_id][r.narrative_name] = int(r.article_count)
+
+    return {
+        "sources": top_sources,
+        "narratives": top_narratives,
+        "matrix": matrix,
         "methodology_note": METHODOLOGY_NOTE,
     }

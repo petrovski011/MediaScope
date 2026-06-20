@@ -69,6 +69,18 @@ async def _save_analysis(pg: asyncpg.Connection, article_id: int, data: dict) ->
     topics_list = [data.get("primary_topic")] if data.get("primary_topic") else []
     topics_list += [t["topic"] for t in secondary if t.get("topic")]
 
+    import json as _json
+    propaganda_techniques = data.get("propaganda_techniques") or []
+    if isinstance(propaganda_techniques, list):
+        propaganda_techniques_json = _json.dumps(propaganda_techniques)
+    else:
+        propaganda_techniques_json = "[]"
+    propaganda_targets = data.get("propaganda_targets") or []
+    if isinstance(propaganda_targets, list):
+        propaganda_targets_json = _json.dumps(propaganda_targets)
+    else:
+        propaganda_targets_json = "[]"
+
     await pg.execute(
         """
         INSERT INTO article_analysis (
@@ -78,6 +90,8 @@ async def _save_analysis(pg: asyncpg.Connection, article_id: int, data: dict) ->
             sentiment, sentiment_score,
             topic_explanation, political_explanation, value_explanation,
             populist_framing, populist_confidence,
+            propaganda_techniques, propaganda_confidence, propaganda_targets,
+            analysis_confidence,
             model_used, analysis_version, analyzed_at
         ) VALUES (
             $1,
@@ -86,7 +100,9 @@ async def _save_analysis(pg: asyncpg.Connection, article_id: int, data: dict) ->
             $8, $9,
             $10, $11, $12,
             $13, $14,
-            $15, $16, $17
+            $15::jsonb, $16, $17::jsonb,
+            $18,
+            $19, $20, $21
         )
         ON CONFLICT (article_id) DO UPDATE SET
             topics = EXCLUDED.topics,
@@ -102,6 +118,10 @@ async def _save_analysis(pg: asyncpg.Connection, article_id: int, data: dict) ->
             value_explanation = EXCLUDED.value_explanation,
             populist_framing = EXCLUDED.populist_framing,
             populist_confidence = EXCLUDED.populist_confidence,
+            propaganda_techniques = EXCLUDED.propaganda_techniques,
+            propaganda_confidence = EXCLUDED.propaganda_confidence,
+            propaganda_targets = EXCLUDED.propaganda_targets,
+            analysis_confidence = EXCLUDED.analysis_confidence,
             model_used = EXCLUDED.model_used,
             analysis_version = EXCLUDED.analysis_version,
             analyzed_at = EXCLUDED.analyzed_at
@@ -120,6 +140,10 @@ async def _save_analysis(pg: asyncpg.Connection, article_id: int, data: dict) ->
         data.get("value_explanation"),
         bool(data.get("populist_framing")),
         data.get("populist_confidence"),
+        propaganda_techniques_json,
+        data.get("propaganda_confidence"),
+        propaganda_targets_json,
+        data.get("analysis_confidence"),
         settings.ANTHROPIC_MODEL,
         PIPELINE_VERSION,
         datetime.now(timezone.utc),
@@ -173,16 +197,19 @@ async def _save_entities(
             created += 1
 
         try:
+            raw_sentiment = ent.get("sentiment")
+            entity_sentiment = float(raw_sentiment) if raw_sentiment is not None else None
             await pg.execute(
                 """
                 INSERT INTO article_entities (
-                    article_id, entity_id, mention_count, is_quoted, is_subject, context_snippet
-                ) VALUES ($1, $2, $3, $4, $5, $6)
+                    article_id, entity_id, mention_count, is_quoted, is_subject, context_snippet, sentiment
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7)
                 ON CONFLICT (article_id, entity_id) DO UPDATE SET
                     mention_count = EXCLUDED.mention_count,
                     is_quoted = EXCLUDED.is_quoted,
                     is_subject = EXCLUDED.is_subject,
-                    context_snippet = EXCLUDED.context_snippet
+                    context_snippet = EXCLUDED.context_snippet,
+                    sentiment = EXCLUDED.sentiment
                 """,
                 article_id,
                 entity_id,
@@ -190,6 +217,7 @@ async def _save_entities(
                 bool(ent.get("has_quote")),
                 bool(ent.get("is_main_subject")),
                 (ent.get("context") or "")[:500] or None,
+                entity_sentiment,
             )
             linked += 1
         except Exception as e:
@@ -204,6 +232,14 @@ async def _topic_id_for_key(pg: asyncpg.Connection, topic_key: Optional[str]) ->
     # primary_topic moze biti "NOVA_TEMA: NESTO" — uzmi samo kanonski kljuc
     key = topic_key.strip()
     if key.upper().startswith("NOVA_TEMA"):
+        proposed = key.split(":", 1)[-1].strip().upper().replace(" ", "_")
+        if proposed:
+            await pg.execute("""
+                INSERT INTO topic_proposals (proposed_key, article_count, last_seen)
+                VALUES ($1, 1, now())
+                ON CONFLICT (proposed_key) WHERE status = 'pending'
+                DO UPDATE SET article_count = topic_proposals.article_count + 1, last_seen = now()
+            """, proposed)
         return None
     return await pg.fetchval("SELECT id FROM topics WHERE key = $1", key)
 
@@ -292,7 +328,9 @@ async def _save_narratives(
 async def _save_narrative_proposals(
     pg: asyncpg.Connection, article_id: int, proposals: list[dict]
 ) -> None:
-    """Hvata AI predloge novih narativa u staging (narrative_proposals), dedup po imenu."""
+    """Hvata AI predloge novih narativa — svaki se čuva zasebno.
+    Klasterovanje po semantičkoj sličnosti radi consolidate_narrative_proposals task.
+    """
     for p in (proposals or [])[:3]:
         name = (p.get("name") or "").strip()
         if not name:
@@ -303,28 +341,21 @@ async def _save_narrative_proposals(
         description = (p.get("description") or "")[:1000] or None
         supporting_text = (p.get("supporting_text") or "")[:500] or None
 
-        # Ako narativ vec postoji (po imenu) — nije predlog
-        exists = await pg.fetchval("SELECT 1 FROM narratives WHERE LOWER(name) = LOWER($1) LIMIT 1", name)
+        # Ne predlažemo ako narativ već postoji u katalogu
+        exists = await pg.fetchval(
+            "SELECT 1 FROM narratives WHERE LOWER(name) = LOWER($1) LIMIT 1", name
+        )
         if exists:
             continue
         try:
-            updated = await pg.fetchval(
+            await pg.execute(
                 """
-                UPDATE narrative_proposals SET occurrences = occurrences + 1
-                WHERE LOWER(name) = LOWER($1) AND status = 'pending'
-                RETURNING id
+                INSERT INTO narrative_proposals
+                    (name, narrative_type, description, supporting_text, article_id, status, occurrences)
+                VALUES ($1, $2, $3, $4, $5, 'pending', 1)
                 """,
-                name,
+                name, ntype, description, supporting_text, article_id,
             )
-            if updated is None:
-                await pg.execute(
-                    """
-                    INSERT INTO narrative_proposals
-                        (name, narrative_type, description, supporting_text, article_id, status)
-                    VALUES ($1, $2, $3, $4, $5, 'pending')
-                    """,
-                    name, ntype, description, supporting_text, article_id,
-                )
         except Exception as e:
             logger.warning("Greska pri upisu narativ predloga %s: %s", name, e)
 

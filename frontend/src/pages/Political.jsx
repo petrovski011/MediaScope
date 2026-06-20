@@ -1,37 +1,90 @@
 import { useQuery } from '@tanstack/react-query'
-import { Landmark, Users, AlertTriangle } from 'lucide-react'
+import { Landmark, Users, AlertTriangle, Shield } from 'lucide-react'
 import { useFilters, toParams } from '../store/filters'
+import { useNavigate } from 'react-router-dom'
 import api from '../lib/api'
 
 const TOPIC_LABELS = {
   POLITIKA: 'Politika', EU_INTEGRACIJE: 'EU integracije', KOSOVO: 'Kosovo',
   EKONOMIJA: 'Ekonomija', INFRASTRUKTURA: 'Infrastruktura', BEZBEDNOST: 'Bezbednost',
-  MEDIJI_SLOBODA: 'Mediji i sloboda', PROTEST: 'Protest', KULTURA: 'Kultura', SPORT: 'Sport',
+  MEDIJSKE_SLOBODE: 'Medijske slobode', MEDIJI_SLOBODA: 'Medijske slobode',
+  PROTEST: 'Protest', KULTURA: 'Kultura', ZABAVA_I_ESTRADA: 'Zabava i estrada', SPORT: 'Sport',
   HRONIKA: 'Hronika', ZDRAVLJE: 'Zdravlje', OBRAZOVANJE: 'Obrazovanje',
   SPOLJNA_POLITIKA: 'Spoljna politika', LOKALNA_VLAST: 'Lokalna vlast', DRUSTVO: 'Društvo',
 }
 
+const PROPAGANDA_LABELS = {
+  DEMONIZACIJA: 'Demonizacija', DEZINFORMACIJA: 'Dezinformacija',
+  CONSPIRACY_THEORY: 'Teorija zavere', FEAR_APPEAL: 'Apel na strah',
+  FALSE_DICHOTOMY: 'Lažna dihotomija', SCAPEGOATING: 'Žrtveni jarac',
+  DEFAMATION: 'Kleveta', SMEAR_CAMPAIGN: 'Blatna kampanja',
+  WHATABOUTISM: 'Whataboutism', CHERRY_PICKING: 'Selektivni fakti',
+  EMOTIONAL_APPEAL: 'Emotivni apel',
+}
+
+function SentimentBar({ pos, neg, neu }) {
+  const total = (pos + neg + neu) || 1
+  return (
+    <div className="flex h-2 rounded-full overflow-hidden w-full"
+      title={`pozitivno ${pos} / neutralno ${neu} / negativno ${neg}`}>
+      <div style={{ width: `${(pos / total) * 100}%`, background: '#22c55e' }} />
+      <div style={{ width: `${(neu / total) * 100}%`, background: '#6b7280' }} />
+      <div style={{ width: `${(neg / total) * 100}%`, background: '#ef4444' }} />
+    </div>
+  )
+}
+
 function ActorRow({ a }) {
-  const total = (a.pro_gov_mentions + a.opposition_mentions + a.neutral_mentions) || 1
-  const pg = (a.pro_gov_mentions / total) * 100
-  const opp = (a.opposition_mentions / total) * 100
+  const navigate = useNavigate()
+  const total = (a.positive_mentions + a.negative_mentions + a.neutral_mentions) || 1
+  const pos = (a.positive_mentions / total) * 100
+  const neg = (a.negative_mentions / total) * 100
   const neu = (a.neutral_mentions / total) * 100
+
+  const sentColor = a.avg_entity_sentiment != null
+    ? a.avg_entity_sentiment > 0.15 ? '#22c55e'
+      : a.avg_entity_sentiment < -0.15 ? '#ef4444' : '#6b7280'
+    : '#6b7280'
+
   return (
     <div className="px-4 py-2.5 border-b" style={{ borderColor: 'var(--border)' }}>
       <div className="flex items-center justify-between mb-1">
-        <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{a.name}</span>
-        <span className="text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>{a.mentions} pom. · {a.source_count} izv.</span>
+        <button onClick={() => navigate(`/articles?entity_id=${a.id}&entity_name=${encodeURIComponent(a.name)}`)}
+          className="text-sm font-medium hover:underline text-left" style={{ color: 'var(--text-primary)' }}>
+          {a.name}
+        </button>
+        <div className="flex items-center gap-3 text-xs" style={{ color: 'var(--text-muted)' }}>
+          {a.avg_entity_sentiment != null && (
+            <span className="tabular-nums font-medium" style={{ color: sentColor }}>
+              {a.avg_entity_sentiment > 0 ? '+' : ''}{a.avg_entity_sentiment.toFixed(2)} sent.
+            </span>
+          )}
+          <span>{a.mentions} pom. · {a.source_count} izv.</span>
+        </div>
       </div>
-      <div className="flex h-2 rounded-full overflow-hidden" title={`pro-vlada ${a.pro_gov_mentions} / opozicija ${a.opposition_mentions} / neutralno ${a.neutral_mentions}`}>
-        <div style={{ width: `${pg}%`, background: '#60a5fa' }} />
+      <div className="flex h-2 rounded-full overflow-hidden"
+        title={`pozitivno ${a.positive_mentions} / neutralno ${a.neutral_mentions} / negativno ${a.negative_mentions}`}>
+        <div style={{ width: `${pos}%`, background: '#22c55e' }} />
         <div style={{ width: `${neu}%`, background: '#6b7280' }} />
-        <div style={{ width: `${opp}%`, background: '#f87171' }} />
+        <div style={{ width: `${neg}%`, background: '#ef4444' }} />
+      </div>
+      <div className="flex items-center gap-1.5 mt-1.5">
+        <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Filtriraj po sentimentu:</span>
+        {[['positive', 'pozitivno', '#22c55e'], ['neutral', 'neutralno', '#6b7280'], ['negative', 'negativno', '#ef4444']].map(([key, label, color]) => (
+          <button key={key}
+            onClick={() => navigate(`/articles?entity_id=${a.id}&entity_name=${encodeURIComponent(a.name)}&entity_sentiment=${key}`)}
+            className="text-[10px] px-1.5 py-0.5 rounded border hover:bg-white/[0.04] transition-colors"
+            style={{ borderColor: 'var(--border)', color }}>
+            {label}
+          </button>
+        ))}
       </div>
     </div>
   )
 }
 
 export default function Political() {
+  const navigate = useNavigate()
   const { dateFrom, dateTo, selectedSources } = useFilters()
   const filterParams = toParams({ dateFrom, dateTo, selectedSources })
 
@@ -39,14 +92,15 @@ export default function Political() {
     queryKey: ['political-actors', filterParams],
     queryFn: () => api.get(`/political/actors?${filterParams}`).then(r => r.data),
   })
-  const { data: metaData } = useQuery({
-    queryKey: ['political-meta', filterParams],
-    queryFn: () => api.get(`/political/meta-framing?${filterParams}`).then(r => r.data),
+  const { data: propagandaData } = useQuery({
+    queryKey: ['political-propaganda', filterParams],
+    queryFn: () => api.get(`/political/propaganda?${filterParams}`).then(r => r.data),
   })
+
   const actors = actorsData?.actors || []
-  const metaSrc = metaData?.by_source || []
-  const metaTopic = metaData?.by_topic || []
-  const maxMetaSrc = Math.max(1, ...metaSrc.map(m => m.populist))
+  const byTechnique = propagandaData?.by_technique || []
+  const bySrcProp = propagandaData?.by_source || []
+  const maxTech = Math.max(1, ...byTechnique.map(t => t.count))
 
   return (
     <div className="p-6 space-y-5 max-w-5xl mx-auto">
@@ -55,18 +109,24 @@ export default function Political() {
           <Landmark size={18} style={{ color: 'var(--accent)' }} /> Politička analiza
         </h1>
         <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>
-          Narativni akteri i populistički „narod vs. elite" meta-framing
+          Narativni akteri, entitetski sentiment i propagandne tehnike
         </p>
       </div>
 
+      {/* Legenda */}
+      <div className="flex items-center gap-4 text-xs" style={{ color: 'var(--text-muted)' }}>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: '#22c55e' }} />Pozitivni sentiment</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: '#6b7280' }} />Neutralni sentiment</span>
+        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: '#ef4444' }} />Negativni sentiment</span>
+        <span className="ml-auto flex items-center gap-1 italic">Klik na aktere → filtrirani članci</span>
+      </div>
+
+      {/* Akteri */}
       <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
         <div className="px-4 py-2.5 border-b flex items-center gap-2" style={{ borderColor: 'var(--border)' }}>
           <Users size={13} style={{ color: 'var(--text-muted)' }} />
-          <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Narativni akteri</span>
-          <span className="text-xs ml-auto flex gap-2" style={{ color: 'var(--text-muted)' }}>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: '#60a5fa' }} />pro-vlada</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: '#6b7280' }} />neutralno</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: '#f87171' }} />opozicija</span>
+          <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+            Narativni akteri ({actors.length})
           </span>
         </div>
         {actors.length === 0 ? (
@@ -76,36 +136,62 @@ export default function Political() {
         ) : actors.map(a => <ActorRow key={a.id} a={a} />)}
       </div>
 
-      {/* Meta-framing */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="rounded-xl border p-4" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
-          <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>„Narod vs. elite" po izvoru</h2>
-          {metaSrc.length === 0 ? <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Nema podataka još.</p> :
-            <div className="space-y-2">
-              {metaSrc.slice(0, 12).map(m => (
-                <div key={m.source_id} className="flex items-center gap-3">
-                  <span className="text-xs font-mono w-20" style={{ color: 'var(--text-secondary)' }}>{m.source_id}</span>
-                  <div className="flex-1 h-2.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-elevated)' }}>
-                    <div className="h-full rounded-full" style={{ width: `${(m.populist / maxMetaSrc) * 100}%`, background: '#8b5cf6' }} />
+      {/* Propaganda */}
+      {(byTechnique.length > 0 || bySrcProp.length > 0) && (
+        <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+          <div className="px-4 py-2.5 border-b flex items-center gap-2" style={{ borderColor: 'var(--border)' }}>
+            <Shield size={13} style={{ color: '#ef4444' }} />
+            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+              Propagandne tehnike
+            </span>
+          </div>
+          <div className="p-4 grid grid-cols-2 gap-6">
+            {/* By technique */}
+            <div>
+              <h3 className="text-xs font-medium mb-3" style={{ color: 'var(--text-secondary)' }}>Po tehnici</h3>
+              <div className="space-y-2">
+                {byTechnique.map(t => (
+                  <div key={t.technique} className="flex items-center gap-3">
+                    <span className="text-xs w-36 truncate" style={{ color: 'var(--text-secondary)' }}>
+                      {PROPAGANDA_LABELS[t.technique] || t.technique}
+                    </span>
+                    <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg-elevated)' }}>
+                      <div className="h-full rounded-full" style={{ width: `${(t.count / maxTech) * 100}%`, background: '#ef4444' }} />
+                    </div>
+                    <span className="text-xs tabular-nums w-8 text-right" style={{ color: 'var(--text-muted)' }}>{t.count}</span>
                   </div>
-                  <span className="text-xs tabular-nums w-16 text-right" style={{ color: 'var(--text-muted)' }}>{m.populist} ({Math.round(m.share * 100)}%)</span>
-                </div>
-              ))}
-            </div>}
+                ))}
+              </div>
+            </div>
+            {/* By source */}
+            <div>
+              <h3 className="text-xs font-medium mb-3" style={{ color: 'var(--text-secondary)' }}>Po izvoru</h3>
+              <div className="space-y-2">
+                {bySrcProp.slice(0, 12).map(s => (
+                  <div key={s.source_id} className="flex items-center gap-3">
+                    <button onClick={() => navigate(`/articles?source_ids=${s.source_id}`)}
+                      title="Prikaži članke ovog medija"
+                      className="text-xs font-mono w-20 text-left hover:underline" style={{ color: '#a5b4fc' }}>{s.source_id}</button>
+                    <div className="flex flex-1 gap-0.5">
+                      {Object.entries(s.techniques).slice(0, 4).map(([tech, cnt]) => (
+                        <span key={tech} className="text-[9px] px-1 rounded truncate"
+                          style={{ background: 'rgba(239,68,68,0.15)', color: '#fca5a5' }}
+                          title={`${PROPAGANDA_LABELS[tech] || tech}: ${cnt}`}>
+                          {PROPAGANDA_LABELS[tech]?.slice(0, 6) || tech.slice(0, 6)}
+                        </span>
+                      ))}
+                    </div>
+                    <span className="text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>{s.total}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="px-4 py-2 text-xs border-t italic" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
+            Propaganda detekcija je eksperimentalna — popunjava se re-analizom novih članaka.
+          </div>
         </div>
-        <div className="rounded-xl border p-4" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
-          <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>„Narod vs. elite" po temi</h2>
-          {metaTopic.length === 0 ? <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Nema podataka još.</p> :
-            <div className="space-y-2">
-              {metaTopic.slice(0, 12).map(m => (
-                <div key={m.topic} className="flex items-center justify-between">
-                  <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{TOPIC_LABELS[m.topic] || m.topic}</span>
-                  <span className="text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>{m.populist} ({Math.round(m.share * 100)}%)</span>
-                </div>
-              ))}
-            </div>}
-        </div>
-      </div>
+      )}
 
       {actorsData?.methodology_note && (
         <p className="text-xs flex items-start gap-1.5 italic" style={{ color: 'var(--text-muted)' }}>

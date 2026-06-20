@@ -6,8 +6,11 @@ from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
+from sqlalchemy import update as sa_update
+
 from api.deps import get_current_user, require_role, get_db
-from models.analysis import Narrative, NarrativeProposal, ArticleNarrative, NarrativeDailyIntensity
+from api.v1.researcher_log import log_action
+from models.analysis import Narrative, NarrativeProposal, ArticleNarrative, NarrativeDailyIntensity, NarrativeCluster
 
 router = APIRouter(prefix="/narratives", tags=["narratives"])
 
@@ -87,8 +90,42 @@ async def validate_narrative(
     n.is_validated = True
     n.validated_at = datetime.now(timezone.utc)
     n.validated_by = current_user.id
+    log_action(db, user=current_user, action_type="validate", entity_type="narrative",
+               entity_id=narrative_id, old_status="false", new_status="true")
     await db.commit()
     return {"id": n.id, "is_validated": True}
+
+
+@router.patch("/{narrative_id}")
+async def update_narrative(
+    narrative_id: int,
+    data: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_role("researcher", "admin")),
+):
+    """Ažuriranje narativa — npr. revert validacije: {is_validated: false}"""
+    n = await db.get(Narrative, narrative_id)
+    if not n:
+        raise HTTPException(status_code=404, detail="Narrativ nije pronađen")
+    if "is_validated" in data:
+        new_validated = bool(data["is_validated"])
+        n.is_validated = new_validated
+        if not n.is_validated:
+            n.validated_at = None
+            n.validated_by = None
+        if not new_validated:
+            log_action(db, user=current_user, action_type="unvalidate", entity_type="narrative",
+                       entity_id=narrative_id, old_status="true", new_status="false")
+    else:
+        # čista metadata izmena (bez promene validacije)
+        log_action(db, user=current_user, action_type="edit", entity_type="narrative",
+                   entity_id=narrative_id)
+    if "name" in data:
+        n.name = data["name"]
+    if "description" in data:
+        n.description = data["description"]
+    await db.commit()
+    return {"id": n.id, "is_validated": n.is_validated}
 
 
 @router.get("/proposals")
@@ -98,23 +135,22 @@ async def list_narrative_proposals(
     current_user=Depends(require_role("researcher", "admin")),
 ):
     rows = (await db.execute(
-        select(NarrativeProposal)
-        .where(NarrativeProposal.status == status)
-        .order_by(desc(NarrativeProposal.occurrences), desc(NarrativeProposal.created_at))
+        select(NarrativeCluster)
+        .where(NarrativeCluster.status == status, NarrativeCluster.proposal_count >= 2)
+        .order_by(desc(NarrativeCluster.proposal_count), desc(NarrativeCluster.last_seen))
     )).scalars().all()
     return {
         "proposals": [
             {
-                "id": p.id,
-                "name": p.name,
-                "narrative_type": p.narrative_type,
-                "description": p.description,
-                "supporting_text": p.supporting_text,
-                "occurrences": p.occurrences,
-                "article_id": p.article_id,
-                "created_at": p.created_at.isoformat() if p.created_at else None,
+                "id": c.id,
+                "name": c.representative_name,
+                "narrative_type": c.narrative_type,
+                "occurrences": c.proposal_count,
+                "description": None,
+                "supporting_text": None,
+                "created_at": c.first_seen.isoformat() if c.first_seen else None,
             }
-            for p in rows
+            for c in rows
         ]
     }
 
@@ -125,25 +161,45 @@ async def approve_narrative_proposal(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_role("researcher", "admin")),
 ):
-    p = await db.get(NarrativeProposal, proposal_id)
-    if not p:
-        raise HTTPException(status_code=404, detail="Predlog nije pronađen")
-    if p.status != "pending":
-        raise HTTPException(status_code=409, detail="Predlog je već obrađen")
+    cluster = (await db.execute(
+        select(NarrativeCluster).where(NarrativeCluster.id == proposal_id)
+    )).scalar_one_or_none()
+    if not cluster:
+        raise HTTPException(404, "Klaster nije pronađen")
+    if cluster.status != "pending":
+        raise HTTPException(400, "Klaster nije u pending statusu")
 
-    existing = await db.scalar(select(Narrative.id).where(func.lower(Narrative.name) == p.name.lower()))
-    if not existing:
-        db.add(Narrative(
-            name=p.name, narrative_type=p.narrative_type, description=p.description,
-            is_active=True, is_validated=True,
-            detected_at=p.created_at, validated_at=datetime.now(timezone.utc),
-            validated_by=current_user.id,
-        ))
-    p.status = "approved"
-    p.reviewed_by = current_user.id
-    p.reviewed_at = datetime.now(timezone.utc)
+    # Create narrative if not already exists
+    existing = (await db.execute(
+        select(Narrative).where(func.lower(Narrative.name) == cluster.representative_name.lower())
+    )).scalar_one_or_none()
+
+    if existing:
+        narrative_id = existing.id
+    else:
+        new_narrative = Narrative(
+            name=cluster.representative_name,
+            narrative_type=cluster.narrative_type,
+            description=f"Kreirano iz klastera: {cluster.representative_name}",
+            is_validated=True,
+            is_active=True,
+        )
+        db.add(new_narrative)
+        await db.flush()
+        narrative_id = new_narrative.id
+
+    cluster.status = "accepted"
+    cluster.accepted_narrative_id = narrative_id
+
+    await db.execute(
+        sa_update(NarrativeProposal)
+        .where(NarrativeProposal.cluster_id == cluster.id)
+        .values(status="approved")
+    )
+    log_action(db, user=current_user, action_type="approve", entity_type="narrative_cluster",
+               entity_id=proposal_id, old_status="pending", new_status="accepted")
     await db.commit()
-    return {"id": p.id, "status": "approved"}
+    return {"ok": True, "narrative_id": narrative_id}
 
 
 @router.post("/proposals/{proposal_id}/reject")
@@ -152,14 +208,22 @@ async def reject_narrative_proposal(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_role("researcher", "admin")),
 ):
-    p = await db.get(NarrativeProposal, proposal_id)
-    if not p:
-        raise HTTPException(status_code=404, detail="Predlog nije pronađen")
-    p.status = "rejected"
-    p.reviewed_by = current_user.id
-    p.reviewed_at = datetime.now(timezone.utc)
+    cluster = (await db.execute(
+        select(NarrativeCluster).where(NarrativeCluster.id == proposal_id)
+    )).scalar_one_or_none()
+    if not cluster:
+        raise HTTPException(404, "Klaster nije pronađen")
+
+    cluster.status = "rejected"
+    await db.execute(
+        sa_update(NarrativeProposal)
+        .where(NarrativeProposal.cluster_id == cluster.id)
+        .values(status="rejected")
+    )
+    log_action(db, user=current_user, action_type="reject", entity_type="narrative_cluster",
+               entity_id=proposal_id, old_status="pending", new_status="rejected")
     await db.commit()
-    return {"id": p.id, "status": "rejected"}
+    return {"ok": True}
 
 
 @router.get("/{narrative_id}")

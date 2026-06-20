@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   BookOpen, Layers, Tag, Users, Compass, Smile, GitBranch, Share2, Zap,
-  EyeOff, Clock, Sunrise, Landmark, RefreshCw, Database, AlertTriangle, Info,
+  EyeOff, Clock, Sunrise, Landmark, RefreshCw, Database, AlertTriangle, Info, Shield,
 } from 'lucide-react'
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -170,7 +170,8 @@ export default function Methodology() {
 
           <Section id="tema" icon={Tag} title="1. Tematska klasifikacija">
             <p>Svaki članak se svrstava u <strong>jednu primarnu</strong> i do tri sekundarne teme, sa confidence skorom (0–1) i kratkim obrazloženjem.</p>
-            <p><strong>Skup tema (16):</strong> POLITIKA, EU_INTEGRACIJE, KOSOVO, EKONOMIJA, INFRASTRUKTURA, BEZBEDNOST, MEDIJI_SLOBODA, PROTEST, KULTURA, SPORT, HRONIKA, ZDRAVLJE, OBRAZOVANJE, SPOLJNA_POLITIKA, LOKALNA_VLAST, DRUSTVO.</p>
+            <p><strong>Skup tema (17):</strong> POLITIKA, EU_INTEGRACIJE, KOSOVO, EKONOMIJA, INFRASTRUKTURA, BEZBEDNOST, MEDIJSKE_SLOBODE, PROTEST, KULTURA, ZABAVA_I_ESTRADA, SPORT, HRONIKA, ZDRAVLJE, OBRAZOVANJE, SPOLJNA_POLITIKA, LOKALNA_VLAST, DRUSTVO.</p>
+            <p className="text-xs" style={{ color: C.muted }}><strong>KULTURA</strong> pokriva pozorište, film, književnost i likovne umetnosti. <strong>ZABAVA_I_ESTRADA</strong> pokriva rijaliti TV, celebrity, folk, showbiz i humor — razdvojenost obezbjeđuje preciznost agregata po temi.</p>
             <p>Klasifikacija je <strong>dinamička</strong>: ako sadržaj ne odgovara nijednoj kategoriji, AI predlaže novu (<code>NOVA_TEMA: …</code>), koju istraživač može usvojiti.</p>
             <p className="text-xs" style={{ color: C.muted }}>Osnova: naslov (100%) + tekst (98.5%) — potpuna podrška za sve izvore.</p>
           </Section>
@@ -178,7 +179,9 @@ export default function Methodology() {
           <Section id="ner" icon={Users} title="2. Prepoznavanje entiteta (NER)">
             <p>Iz svakog teksta ekstrahuju se <strong>osobe, organizacije i mesta</strong>. Varijante istog entiteta se normalizuju (npr. „Vučić", „Aleksandar Vučić", „predsednik" → <em>Aleksandar Vučić</em>). Generički pojmovi („vlada", „novinari") se izostavljaju.</p>
             <p>Za svaki entitet beleži se: broj pominjanja, da li je <strong>citiran</strong> (is_quoted), da li je <strong>subjekt</strong> članka (is_subject) i da li je <strong>politički akter</strong> (is_political_actor — funkcioner, stranka, institucija).</p>
+            <p><strong>Entitetski sentiment</strong> — za svaki politički akter u tekstu, AI procenjuje kako je akter pominjut (−1 negativno, 0 neutralno, +1 pozitivno). Ovo je namerno odvojeno od opšteg sentimenta teksta: isti negativan tekst može pozitivno pominjati jednog aktera i negativno drugog.</p>
             <p className="text-xs" style={{ color: C.muted }}>NER je osnova političke analize: ko se citira, ko se pominje i u kom kontekstu — direktan pokazatelj medijskog tretmana aktera.</p>
+            <p><strong>Citati i revizija</strong> — za svaki entitet istraživač može da otvori <strong>kontekstualne citate</strong> (konkretni isečci iz članaka uz izvor, datum i entitetski sentiment) i da po potrebi <strong>izmeni</strong> entitet (naziv, tip, oznaku političkog aktera). Time se ručno koriguju greške NER normalizacije.</p>
           </Section>
 
           <Section id="framing" icon={Layers} title="3. Framing analiza (tematski specifična)">
@@ -224,6 +227,8 @@ export default function Methodology() {
             <Note kind="warn">
               Mapiranje koristi <strong>AI</strong> (značenje, kontekst), a ne prosto poklapanje ključnih reči — pa hvata narativ i kad nije eksplicitan. Jedan članak može nositi više narativa.
             </Note>
+            <p><strong>Predloženi narativi se klasterišu semantički</strong> (embedding + kosinusna udaljenost): umesto da se isti koncept formulisan na 50 načina pojavi kao 50 zasebnih predloga, srodne formulacije se spajaju u jedan klaster. Predlog postaje vidljiv istraživaču tek kada klaster obuhvati više nezavisnih članaka — čime se izbegava šum.</p>
+            <p><strong>Reverzibilnost i trag odluka.</strong> Svaka istraživačka odluka (prihvatanje/odbijanje narativa, framinga ili teme, validacija, izmena entiteta) upisuje se u <em>Istraživački log</em> sa starim i novim statusom. Odluke o predlozima i validacijama su <strong>jednoklik-reverzibilne</strong> — vraćaju stavku u prethodno stanje; izmene entiteta se ispravljaju ponovnim editovanjem. Time je ceo proces ljudske kuracije transparentan i poništiv.</p>
           </Section>
 
           <Section id="koordinacija" icon={Share2} title="7. Detekcija koordinisanog ponašanja">
@@ -240,7 +245,8 @@ export default function Methodology() {
                 Isti narativ plasiran kroz ≥3 izvora u 48h, čak i kad su teme različite. Prag skora <code>0.75</code>; jaka cross-group koordinacija → alert.
               </Defn>
             </div>
-            <p><strong>Mreža koordinacije</strong> agregira sva tri signala u graf (čvorovi = izvori, ivice = jačina). <strong>Vlasnički kontekst</strong> je ključan: United Media poseduje <strong>N1, Nova, Danas, B92, Radar</strong> — koordinacija unutar iste grupe ima drugačiju interpretaciju nego između grupa (ivice iste grupe se posebno označavaju).</p>
+            <p><strong>Mreža koordinacije</strong> agregira sva tri signala u graf (čvorovi = izvori, ivice = jačina). <strong>Vlasnički kontekst</strong> je ključan: koordinacija unutar iste vlasničke grupe ima drugačiju interpretaciju nego između grupa (ivice iste grupe se posebno označavaju). Grupe u sistemu: <em>Adria News Network</em> (N1, Nova S, Danas, Radar — bivša United Media), <em>Kopernikus Media</em> (B92, Prva), <em>Ringier</em> (Blic), <em>Telekom Srbija</em> (Mondo) i dr. SNA matrice (Mediji ↔ Akteri, Teme, Narativi) dostupne su na posebnim tabovima.</p>
+            <p>Na nivou pojedinačnog članka, „slični članci" se prikazuju kao <strong>vremenski timeline</strong> (poređani po vremenu objave) — vizuelno otkriva ko je prvi objavio i kako se sadržaj širio kroz izvore. Članci bez tačnog vremena objave prikazuju se odvojeno.</p>
             <Note kind="warn">
               <strong>Koordinacija ne dokazuje nameru.</strong> Sličnost može biti rezultat deljenja istog izvora, prenosa agencijskih vesti ili slučajnog poklapanja. Interpretacija ostaje na istraživaču.
             </Note>
@@ -277,13 +283,19 @@ export default function Methodology() {
             <p>Distribucija tema kroz delove dana (jutarnji/podnevni/večernji ciklus plasiranja). Članci bez <code>published_at</code> (starija arhiva RTS/Tanjug) se ne prikazuju u ovoj analizi.</p>
           </Section>
 
-          <Section id="politicka" icon={Landmark} title="12. Politička analiza">
+          <Section id="politicka" icon={Landmark} title="12. Politička analiza i propaganda detekcija">
             <p>Specijalizovani objektiv nad istim podacima — kako se politički akteri tretiraju i koje narative projektuju.</p>
             <div className="space-y-2">
-              <Defn term="Narativni akteri">Politički akteri (iz NER-a) sa brojem pominjanja i sentimentom, <strong>podeljeno po alignment-u izvora</strong> (pro-vlada / opozicija / neutralno — izvedeno iz prosečnog političkog skora izvora).</Defn>
-              <Defn term="Meta-framing: narod vs. elite">Populistički obrazac suprotstavljanja „običnog naroda" i „elite" (strane sile, tajkuni, opozicione elite, Brisel). Transverzalan — pojavljuje se kroz različite teme; prati se kao zaseban flag po članku, agregiran po izvoru i temi.</Defn>
+              <Defn term="Narativni akteri">Politički akteri (iz NER-a) sa <strong>entitetskim sentimentom</strong> (kako je svaki akter specifično pominjut, −1…+1), brojem pominjanja i distribucijom po alignment-u izvora (pro-vlada / opozicija / neutralno).</Defn>
+              <Defn term="Propaganda detekcija (eksperimentalna)">
+                AI detektuje propagandne tehnike po tekstu: DEMONIZACIJA, DEZINFORMACIJA, CONSPIRACY_THEORY, FEAR_APPEAL, FALSE_DICHOTOMY, SCAPEGOATING, DEFAMATION, SMEAR_CAMPAIGN, WHATABOUTISM, CHERRY_PICKING, EMOTIONAL_APPEAL. Vraća listu tehnika, confidence (0–1) i mete (propaganda_targets). Popunjava se re-analizom novih i starih članaka.
+              </Defn>
             </div>
-            <Note kind="warn">Politička analiza koristi NER iz medijskog sadržaja. Medij koji koristi neki okvir nije nužno svestan instrument političkog narativa — interpretacija korelacije ostaje na istraživaču.</Note>
+            <Note kind="warn">
+              <strong>Propaganda detekcija je eksperimentalna</strong> — model detektuje površinski/tekstualne signale, ne intenciju autora. Lažno pozitivni su mogući. Interpretacija nalaza ostaje isključivo na istraživaču. Korelacija sa izvorom ≠ dokaz koordinirane propagandne kampanje.
+            </Note>
+            <p className="text-xs" style={{ color: C.muted }}>Napomena: raniji „narod vs. elite" (populistički meta-framing) je uklonjen iz analize jer je bio nedovoljno precizan; može se vratiti kasnije ako se definiše operativno mernije.</p>
+            <p><strong>Akteri kao ulaz u korpus</strong> — klikom na aktera (ili na polaritet pozitivno/neutralno/negativno) otvara se filtrirana lista članaka u kojima je taj akter tako prikazan, čime se nalaz uvek može vratiti na izvorni tekst.</p>
           </Section>
 
           <Section id="kalibracija" icon={RefreshCw} title="13. Kalibracija (RLHF)">
@@ -298,12 +310,12 @@ export default function Methodology() {
           </Section>
 
           <Section id="izvori" icon={Database} title="14. Izvori, modeli i parametri">
-            <p><strong>19 aktivnih portala</strong> (+ Južne vesti kao stub). Vlasnička dimenzija je kontekstualni sloj — npr. United Media: N1, Nova, Danas, B92, Radar.</p>
+            <p><strong>19 aktivnih portala</strong> (+ Južne vesti kao stub). Vlasnička dimenzija je kontekstualni sloj — grupe: Adria News Network (N1, Nova S, Danas, Radar), Kopernikus Media (B92, Prva), Ringier (Blic), Telekom Srbija/državno (Mondo), Privatni srpski (Telegraf, Kurir, Informer, Tanjug, Srbija danas), Nezavisni/NGO (BIRN, Insajder).</p>
             <p className="font-medium" style={{ color: C.primary }}>Modeli</p>
             <ParamTable rows={[
               ['AI analiza', 'Claude (Anthropic), noćni Batch API (~50% jeftiniji)'],
               ['Embeddings', 'intfloat/multilingual-e5-base — 768d, lokalno (CPU)'],
-              ['Ritam', 'noćni batch 22:30 · provera /15min · agregacije i origin/koordinacija u ranim satima · jutarnji pregled 07:00'],
+              ['Ritam', 'noćni batch 22:30 · provera /15min · agregacije i origin/koordinacija u ranim satima · dnevni pregled 07:00 (analizira juče)'],
             ]} />
             <p className="font-medium mt-2" style={{ color: C.primary }}>Ključni pragovi (iz konfiguracije)</p>
             <ParamTable rows={[

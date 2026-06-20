@@ -1,16 +1,32 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
-import { User, Building2, MapPin, MessageSquare, Copy, AlertTriangle, Plus, X, BookOpen, Check, Sparkles } from 'lucide-react'
+import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+import { User, Building2, MapPin, MessageSquare, Copy, AlertTriangle, Plus, X, BookOpen, Check, Sparkles, ChevronLeft, ChevronRight, RotateCcw, Search, Pencil, Quote } from 'lucide-react'
 import { useFilters, toParams } from '../store/filters'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../store/auth'
 import api from '../lib/api'
 
+function Pagination({ page, pages, onChange }) {
+  if (pages <= 1) return null
+  return (
+    <div className="flex items-center justify-between px-4 py-2 border-t text-xs" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
+      <span>Stranica {page} od {pages}</span>
+      <div className="flex gap-1">
+        <button onClick={() => onChange(p => Math.max(1, p - 1))} disabled={page === 1}
+          className="p-1 rounded disabled:opacity-30 hover:bg-white/[0.04]"><ChevronLeft size={14} /></button>
+        <button onClick={() => onChange(p => Math.min(pages, p + 1))} disabled={page >= pages}
+          className="p-1 rounded disabled:opacity-30 hover:bg-white/[0.04]"><ChevronRight size={14} /></button>
+      </div>
+    </div>
+  )
+}
+
 const TOPIC_LABELS = {
   POLITIKA: 'Politika', EU_INTEGRACIJE: 'EU integracije', KOSOVO: 'Kosovo',
   EKONOMIJA: 'Ekonomija', INFRASTRUKTURA: 'Infrastruktura', BEZBEDNOST: 'Bezbednost',
-  MEDIJI_SLOBODA: 'Mediji i sloboda', PROTEST: 'Protest', KULTURA: 'Kultura', SPORT: 'Sport',
+  MEDIJSKE_SLOBODE: 'Medijske slobode', MEDIJI_SLOBODA: 'Medijske slobode',
+  PROTEST: 'Protest', KULTURA: 'Kultura', ZABAVA_I_ESTRADA: 'Zabava i estrada', SPORT: 'Sport',
   HRONIKA: 'Hronika', ZDRAVLJE: 'Zdravlje', OBRAZOVANJE: 'Obrazovanje',
   SPOLJNA_POLITIKA: 'Spoljna politika', LOKALNA_VLAST: 'Lokalna vlast', DRUSTVO: 'Društvo',
 }
@@ -25,37 +41,165 @@ const ALL_TOPICS = Object.keys(TOPIC_LABELS)
 const TYPE_ICONS = { person: User, organization: Building2, location: MapPin }
 const TYPE_LABELS = { person: 'Osobe', organization: 'Organizacije', location: 'Mesta' }
 
+function SentimentDot({ value }) {
+  if (value == null) return <span className="w-2 h-2 rounded-full inline-block shrink-0" style={{ background: 'var(--text-muted)' }} title="sentiment nepoznat" />
+  const color = value > 0.2 ? '#22c55e' : value < -0.2 ? '#ef4444' : '#94a3b8'
+  const label = value > 0.2 ? 'pozitivno' : value < -0.2 ? 'negativno' : 'neutralno'
+  return <span className="w-2 h-2 rounded-full inline-block shrink-0" style={{ background: color }} title={`${label} (${value.toFixed(2)})`} />
+}
+
+function CitationsModal({ entity, onClose }) {
+  const navigate = useNavigate()
+  const { data, isLoading } = useQuery({
+    queryKey: ['entity-mentions', entity.id],
+    queryFn: () => api.get(`/entities/${entity.id}/mentions?limit=30`).then(r => r.data),
+  })
+  const mentions = data?.mentions || []
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={onClose}>
+      <div className="rounded-xl border w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col"
+        style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }} onClick={e => e.stopPropagation()}>
+        <div className="px-4 py-3 border-b flex items-center justify-between" style={{ borderColor: 'var(--border)' }}>
+          <div className="flex items-center gap-2">
+            <Quote size={14} style={{ color: '#f59e0b' }} />
+            <h3 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Citati: {entity.name}</h3>
+          </div>
+          <button onClick={onClose}><X size={16} style={{ color: 'var(--text-muted)' }} /></button>
+        </div>
+        <div className="overflow-y-auto divide-y" style={{ borderColor: 'var(--border)' }}>
+          {isLoading ? (
+            <div className="p-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>Učitavanje…</div>
+          ) : mentions.length === 0 ? (
+            <div className="p-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>Nema sačuvanih citata za ovaj entitet.</div>
+          ) : mentions.map((m, i) => (
+            <div key={i} className="px-4 py-3 cursor-pointer hover:bg-white/[0.02] transition-colors"
+              onClick={() => navigate(`/articles/${m.article_id}`)}>
+              <div className="flex items-center gap-2 mb-1">
+                <SentimentDot value={m.sentiment} />
+                <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>{m.source_id}</span>
+                {m.published_at && <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{new Date(m.published_at).toLocaleDateString('sr-RS')}</span>}
+              </div>
+              {m.context_snippet && <p className="text-xs italic leading-snug" style={{ color: 'var(--text-secondary)' }}>"{m.context_snippet}"</p>}
+              <p className="text-xs mt-0.5 leading-snug" style={{ color: 'var(--text-primary)' }}>{m.title}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EntityEditModal({ entity, onClose }) {
+  const qc = useQueryClient()
+  const [name, setName] = useState(entity.name)
+  const [type, setType] = useState(entity.entity_type)
+  const [isActor, setIsActor] = useState(!!entity.is_political_actor)
+  const save = useMutation({
+    mutationFn: () => api.patch(`/entities/${entity.id}`, { name, entity_type: type, is_political_actor: isActor }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['entities'] }); onClose() },
+  })
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={onClose}>
+      <div className="rounded-xl border w-full max-w-md" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }} onClick={e => e.stopPropagation()}>
+        <div className="px-4 py-3 border-b flex items-center justify-between" style={{ borderColor: 'var(--border)' }}>
+          <h3 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Izmena entiteta</h3>
+          <button onClick={onClose}><X size={16} style={{ color: 'var(--text-muted)' }} /></button>
+        </div>
+        <div className="p-4 space-y-3">
+          <div>
+            <label className="text-xs block mb-1" style={{ color: 'var(--text-muted)' }}>Naziv</label>
+            <input value={name} onChange={e => setName(e.target.value)}
+              className="w-full px-2 py-1.5 rounded text-sm border outline-none"
+              style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
+          </div>
+          <div>
+            <label className="text-xs block mb-1" style={{ color: 'var(--text-muted)' }}>Tip</label>
+            <select value={type} onChange={e => setType(e.target.value)}
+              className="w-full px-2 py-1.5 rounded text-sm border outline-none"
+              style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}>
+              <option value="person">Osoba</option>
+              <option value="organization">Organizacija</option>
+              <option value="location">Lokacija</option>
+            </select>
+          </div>
+          <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
+            <input type="checkbox" checked={isActor} onChange={e => setIsActor(e.target.checked)} />
+            Politički akter
+          </label>
+        </div>
+        <div className="px-4 py-3 border-t flex justify-end gap-2" style={{ borderColor: 'var(--border)' }}>
+          <button onClick={onClose} className="px-3 py-1.5 rounded text-sm border" style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>Otkaži</button>
+          <button onClick={() => save.mutate()} disabled={save.isPending || !name.trim()}
+            className="px-3 py-1.5 rounded text-sm font-medium" style={{ background: 'var(--accent)', color: 'white' }}>
+            {save.isPending ? 'Čuvam…' : 'Sačuvaj'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function EntityTable({ filterParams }) {
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const canEdit = user?.role === 'admin' || user?.role === 'researcher'
+  const [citeEntity, setCiteEntity] = useState(null)
+  const [editEntity, setEditEntity] = useState(null)
   const [entityType, setEntityType] = useState('')
+  const [sortBy, setSortBy] = useState('total_mentions')
+  const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
+  const PER_PAGE = 10
 
-  const p = new URLSearchParams({ limit: 50, ...filterParams })
+  const p = new URLSearchParams({ per_page: PER_PAGE, page, sort_by: sortBy, ...filterParams })
   if (entityType) p.set('entity_type', entityType)
+  if (search) p.set('search', search)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['entities', JSON.stringify(filterParams), entityType],
+    queryKey: ['entities', JSON.stringify(filterParams), entityType, sortBy, search, page],
     queryFn: () => api.get(`/entities?${p}`).then(r => r.data),
+    keepPreviousData: true,
   })
 
   const items = data?.items || []
+  const pages = data?.pages || 1
+  const total = data?.total || 0
   const maxMentions = items[0]?.total_mentions || 1
 
   return (
     <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
-      <div className="px-4 py-3 border-b flex items-center justify-between" style={{ borderColor: 'var(--border)' }}>
-        <h2 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Najčešće pominjani entiteti</h2>
-        <div className="flex gap-1">
-          {[['', 'Svi'], ['person', 'Osobe'], ['organization', 'Organizacije']].map(([val, label]) => (
-            <button key={val} onClick={() => setEntityType(val)}
-              className="px-2.5 py-1 rounded text-xs border transition-colors"
-              style={{
-                borderColor: entityType === val ? '#6366f1' : 'var(--border)',
-                color: entityType === val ? '#a5b4fc' : 'var(--text-muted)',
-                background: entityType === val ? 'rgba(99,102,241,0.1)' : 'transparent',
-              }}>
-              {label}
-            </button>
-          ))}
+      <div className="px-4 py-3 border-b flex items-center justify-between gap-3" style={{ borderColor: 'var(--border)' }}>
+        <h2 className="text-sm font-medium shrink-0" style={{ color: 'var(--text-primary)' }}>
+          Entiteti {total > 0 && <span className="text-xs ml-1" style={{ color: 'var(--text-muted)' }}>{total}</span>}
+        </h2>
+        <div className="flex items-center gap-2 flex-1">
+          <div className="relative">
+            <Search size={11} className="absolute left-2 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-muted)' }} />
+            <input value={search} onChange={e => { setSearch(e.target.value); setPage(1) }}
+              placeholder="Pretraži…" className="pl-6 pr-2 py-1 rounded text-xs border outline-none w-32"
+              style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
+          </div>
+          <select value={sortBy} onChange={e => { setSortBy(e.target.value); setPage(1) }}
+            className="px-2 py-1 rounded text-xs border outline-none"
+            style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
+            <option value="total_mentions">Pominjanja</option>
+            <option value="article_count">Članci</option>
+            <option value="source_count">Izvori</option>
+            <option value="name">Naziv</option>
+          </select>
+          <div className="flex gap-1 ml-auto">
+            {[['', 'Svi'], ['person', 'Osobe'], ['organization', 'Org.']].map(([val, label]) => (
+              <button key={val} onClick={() => { setEntityType(val); setPage(1) }}
+                className="px-2.5 py-1 rounded text-xs border transition-colors"
+                style={{
+                  borderColor: entityType === val ? '#6366f1' : 'var(--border)',
+                  color: entityType === val ? '#a5b4fc' : 'var(--text-muted)',
+                  background: entityType === val ? 'rgba(99,102,241,0.1)' : 'transparent',
+                }}>
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -70,8 +214,8 @@ function EntityTable({ filterParams }) {
           <table className="w-full">
             <thead>
               <tr className="border-b" style={{ borderColor: 'var(--border)' }}>
-                {['#', 'Entitet', 'Tip', 'Pominjanja', 'Članci', 'Izvora', 'Citiran'].map(h => (
-                  <th key={h} className="px-3 py-2.5 text-left text-xs font-medium"
+                {['#', 'Entitet', 'Tip', 'Pominjanja', 'Članci', 'Izvora', 'Citiran', ''].map((h, hi) => (
+                  <th key={hi} className="px-3 py-2.5 text-left text-xs font-medium"
                     style={{ color: 'var(--text-muted)' }}>{h}</th>
                 ))}
               </tr>
@@ -129,6 +273,24 @@ function EntityTable({ filterParams }) {
                         </div>
                       )}
                     </td>
+                    <td className="px-3 py-3">
+                      <div className="flex items-center gap-1.5">
+                        <button onClick={e => { e.stopPropagation(); setCiteEntity(entity) }}
+                          title="Citati (kontekst pominjanja)"
+                          className="p-1 rounded border hover:bg-white/[0.04]"
+                          style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
+                          <Quote size={12} />
+                        </button>
+                        {canEdit && (
+                          <button onClick={e => { e.stopPropagation(); setEditEntity(entity) }}
+                            title="Izmeni entitet"
+                            className="p-1 rounded border hover:bg-white/[0.04]"
+                            style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
+                            <Pencil size={12} />
+                          </button>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 )
               })}
@@ -136,6 +298,9 @@ function EntityTable({ filterParams }) {
           </table>
         </div>
       )}
+      <Pagination page={page} pages={pages} onChange={setPage} />
+      {citeEntity && <CitationsModal entity={citeEntity} onClose={() => setCiteEntity(null)} />}
+      {editEntity && <EntityEditModal entity={editEntity} onClose={() => setEditEntity(null)} />}
     </div>
   )
 }
@@ -244,17 +409,22 @@ function TopicTimeline({ filterParams }) {
   )
 }
 
+const CP_PER_PAGE = 5
+const FM_PER_PAGE = 5
+
 function CoordinationPanel({ filterParams }) {
   const navigate = useNavigate()
   const [tab, setTab] = useState('copypaste')
+  const [cpPage, setCpPage] = useState(1)
+  const [fmPage, setFmPage] = useState(1)
 
-  const cpParams = new URLSearchParams({ threshold: 0.7, limit: 30, ...filterParams })
+  const cpParams = new URLSearchParams({ threshold: 0.7, limit: 50, ...filterParams })
   const { data: cpData, isLoading: cpLoading } = useQuery({
     queryKey: ['coordination-cp', JSON.stringify(filterParams)],
     queryFn: () => api.get(`/coordination/copy-paste?${cpParams}`).then(r => r.data),
   })
 
-  const fmParams = new URLSearchParams({ min_sources: 3, limit: 20, ...filterParams })
+  const fmParams = new URLSearchParams({ min_sources: 2, limit: 50, ...filterParams })
   const { data: fmData, isLoading: fmLoading } = useQuery({
     queryKey: ['coordination-framing', JSON.stringify(filterParams)],
     queryFn: () => api.get(`/coordination/framing?${fmParams}`).then(r => r.data),
@@ -263,6 +433,11 @@ function CoordinationPanel({ filterParams }) {
   const cpPairs = cpData?.pairs || []
   const fmGroups = fmData?.groups || []
   const fmSignals = fmGroups.filter(g => g.coordination_signal)
+
+  const cpPages = Math.max(1, Math.ceil(cpPairs.length / CP_PER_PAGE))
+  const fmPages = Math.max(1, Math.ceil(fmGroups.length / FM_PER_PAGE))
+  const cpSlice = cpPairs.slice((cpPage - 1) * CP_PER_PAGE, cpPage * CP_PER_PAGE)
+  const fmSlice = fmGroups.slice((fmPage - 1) * FM_PER_PAGE, fmPage * FM_PER_PAGE)
 
   return (
     <div className="rounded-xl border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
@@ -298,8 +473,8 @@ function CoordinationPanel({ filterParams }) {
               Nema copy-paste parova (threshold ≥70%)
             </div>
           ) : (
-            <div className="divide-y overflow-auto" style={{ borderColor: 'var(--border)', maxHeight: 400 }}>
-              {cpPairs.map((pair, i) => (
+            <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+              {cpSlice.map((pair, i) => (
                 <div key={i} className="px-4 py-3">
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-xs px-2 py-0.5 rounded-full"
@@ -331,6 +506,7 @@ function CoordinationPanel({ filterParams }) {
               ))}
             </div>
           )}
+          <Pagination page={cpPage} pages={cpPages} onChange={setCpPage} />
           <div className="px-4 py-2 text-xs border-t" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
             {cpData?.methodology_note}
           </div>
@@ -343,11 +519,11 @@ function CoordinationPanel({ filterParams }) {
             <div className="p-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>Učitavanje...</div>
           ) : fmGroups.length === 0 ? (
             <div className="p-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
-              Nema framing koordinacije (min. 3 izvora o istoj temi isti dan)
+              Nema framing koordinacije (min. 2 izvora o istoj temi isti dan)
             </div>
           ) : (
-            <div className="divide-y overflow-auto" style={{ borderColor: 'var(--border)', maxHeight: 400 }}>
-              {fmGroups.map((g, i) => (
+            <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+              {fmSlice.map((g, i) => (
                 <div key={i} className="px-4 py-3 flex items-center gap-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
@@ -387,6 +563,7 @@ function CoordinationPanel({ filterParams }) {
               ))}
             </div>
           )}
+          <Pagination page={fmPage} pages={fmPages} onChange={setFmPage} />
           <div className="px-4 py-2 text-xs border-t" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
             {fmData?.methodology_note}
           </div>
@@ -428,6 +605,11 @@ function NarrativesPanel() {
 
   const validateMutation = useMutation({
     mutationFn: id => api.post(`/narratives/${id}/validate`).then(r => r.data),
+    onSuccess: () => qc.invalidateQueries(['narratives']),
+  })
+
+  const revertMutation = useMutation({
+    mutationFn: id => api.patch(`/narratives/${id}`, { is_validated: false }),
     onSuccess: () => qc.invalidateQueries(['narratives']),
   })
 
@@ -522,6 +704,14 @@ function NarrativesPanel() {
                   <Check size={12} /> Validiraj
                 </button>
               )}
+              {canEdit && n.is_validated && (
+                <button onClick={() => revertMutation.mutate(n.id)} disabled={revertMutation.isPending}
+                  className="flex items-center gap-1 text-xs px-2 py-1 rounded border shrink-0 hover:bg-white/[0.04] disabled:opacity-50"
+                  style={{ borderColor: 'var(--border)', color: '#f59e0b' }}
+                  title="Vrati u predloge (poništi validaciju)">
+                  <RotateCcw size={11} />
+                </button>
+              )}
               {canEdit && (
                 <button onClick={() => deleteMutation.mutate(n.id)}
                   className="text-xs hover:text-red-400 transition-colors shrink-0"
@@ -541,10 +731,13 @@ function NarrativesPanel() {
   )
 }
 
+const PROPOSALS_PER_PAGE = 5
+
 function NarrativeProposalsPanel() {
   const { user } = useAuth()
   const canEdit = user?.role === 'admin' || user?.role === 'researcher'
   const qc = useQueryClient()
+  const [page, setPage] = useState(1)
 
   const { data } = useQuery({
     queryKey: ['narrative-proposals'],
@@ -563,16 +756,38 @@ function NarrativeProposalsPanel() {
   const proposals = data || []
   if (!canEdit || proposals.length === 0) return null
 
+  const pages = Math.ceil(proposals.length / PROPOSALS_PER_PAGE)
+  const slice = proposals.slice((page - 1) * PROPOSALS_PER_PAGE, page * PROPOSALS_PER_PAGE)
+
   return (
-    <div className="rounded-xl border overflow-hidden mb-4" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
-      <div className="px-4 py-3 border-b flex items-center gap-2" style={{ borderColor: 'var(--border)' }}>
-        <Sparkles size={13} style={{ color: '#f59e0b' }} />
-        <h2 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>AI predlozi narativa</h2>
-        <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: '#f59e0b33', color: '#f59e0b' }}>{proposals.length}</span>
+    <section className="mb-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Sparkles size={15} style={{ color: '#f59e0b' }} />
+          <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+            AI predlozi narativa ({proposals.length})
+          </h2>
+        </div>
+        {pages > 1 && (
+          <div className="flex items-center gap-1">
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+              className="p-1 rounded border disabled:opacity-30"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
+              <ChevronLeft size={13} />
+            </button>
+            <span className="text-xs px-1" style={{ color: 'var(--text-muted)' }}>{page}/{pages}</span>
+            <button onClick={() => setPage(p => Math.min(pages, p + 1))} disabled={page === pages}
+              className="p-1 rounded border disabled:opacity-30"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
+              <ChevronRight size={13} />
+            </button>
+          </div>
+        )}
       </div>
-      <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-        {proposals.map(p => (
-          <div key={p.id} className="px-4 py-3 flex items-start justify-between gap-3">
+      <div className="space-y-2">
+        {slice.map(p => (
+          <div key={p.id} className="rounded-xl border p-3 flex items-start justify-between gap-3"
+            style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>{p.name}</span>
@@ -586,17 +801,55 @@ function NarrativeProposalsPanel() {
             </div>
             <div className="flex gap-1.5 shrink-0">
               <button onClick={() => approve.mutate(p.id)} disabled={approve.isPending}
-                className="flex items-center gap-1 px-2 py-1 rounded text-xs border hover:bg-white/[0.04]" style={{ borderColor: 'var(--border)', color: '#22c55e' }}>
+                className="flex items-center gap-1 px-2 py-1 rounded text-xs border hover:bg-white/[0.04]"
+                style={{ borderColor: 'var(--border)', color: '#22c55e' }}>
                 <Check size={12} /> Prihvati
               </button>
               <button onClick={() => reject.mutate(p.id)} disabled={reject.isPending}
-                className="flex items-center gap-1 px-2 py-1 rounded text-xs border hover:bg-white/[0.04]" style={{ borderColor: 'var(--border)', color: '#ef4444' }}>
+                className="flex items-center gap-1 px-2 py-1 rounded text-xs border hover:bg-white/[0.04]"
+                style={{ borderColor: 'var(--border)', color: '#ef4444' }}>
                 <X size={12} /> Odbij
               </button>
             </div>
           </div>
         ))}
       </div>
+    </section>
+  )
+}
+
+const INTRADAY_COLORS = ['#6366f1', '#f59e0b', '#22c55e', '#ef4444', '#06b6d4', '#a855f7', '#ec4899', '#84cc16']
+
+function IntradayPanel({ filterParams }) {
+  const { data } = useQuery({
+    queryKey: ['intraday-narratives', filterParams],
+    queryFn: () => api.get(`/intraday?${filterParams}`).then(r => r.data),
+  })
+  const topics = data?.topics || []
+  const hasData = data?.hourly?.some(h => topics.some(t => h[t]))
+
+  return (
+    <div className="rounded-xl p-4 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+      <h2 className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Intra-day distribucija (po satu)</h2>
+      <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+        Kada se tokom dana objavljuju članci po temama — samo članci sa poznatim tačnim vremenom objave.
+      </p>
+      {!hasData ? (
+        <div className="py-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
+          Nema dovoljno članaka sa tačnim vremenom objave u izabranom periodu.
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height={240}>
+          <BarChart data={data.hourly} margin={{ left: 0, right: 8 }}>
+            <XAxis dataKey="hour" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
+            <YAxis tick={{ fontSize: 10, fill: 'var(--text-muted)' }} width={28} />
+            <Tooltip contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
+            {topics.map((t, i) => (
+              <Bar key={t} dataKey={t} stackId="a" fill={INTRADAY_COLORS[i % INTRADAY_COLORS.length]} />
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
+      )}
     </div>
   )
 }
@@ -618,8 +871,7 @@ export default function Narratives() {
 
       <NarrativeProposalsPanel />
       <NarrativesPanel />
-      <TopicTimeline filterParams={filterParams} />
-      <CoordinationPanel filterParams={filterParams} />
+      <IntradayPanel filterParams={filterParams} />
       <EntityTable filterParams={filterParams} />
     </div>
   )

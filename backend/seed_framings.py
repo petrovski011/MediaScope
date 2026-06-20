@@ -9,7 +9,7 @@ import asyncio
 import asyncpg
 from config import settings
 
-# 16 tema iz prompt enuma (key, label_sr)
+# Teme iz prompt enuma (key, label_sr) — idempotentno, sigurno dodavati novo
 TOPICS = [
     ("POLITIKA", "Politika"),
     ("EU_INTEGRACIJE", "EU integracije"),
@@ -17,9 +17,11 @@ TOPICS = [
     ("EKONOMIJA", "Ekonomija"),
     ("INFRASTRUKTURA", "Infrastruktura"),
     ("BEZBEDNOST", "Bezbednost"),
-    ("MEDIJI_SLOBODA", "Mediji i sloboda"),
+    ("MEDIJI_SLOBODA", "Medijske slobode"),   # label rename (key ostaje isti za backward compat)
+    ("MEDIJSKE_SLOBODE", "Medijske slobode"), # novi key za buduće clanke
     ("PROTEST", "Protesti"),
     ("KULTURA", "Kultura"),
+    ("ZABAVA_I_ESTRADA", "Zabava i estrada"), # novo
     ("SPORT", "Sport"),
     ("HRONIKA", "Hronika"),
     ("ZDRAVLJE", "Zdravlje"),
@@ -57,6 +59,16 @@ TOPIC_FRAMES = {
         ("evropski_put_frame",       "EU integracije kao pozitivan razvojni i civilizacijski cilj"),
         ("licemerje_frame",          "EU kao licemerna, sa dvostrukim standardima prema Srbiji"),
         ("reforme_frame",            "Fokus na konkretne reforme i standarde koje treba ispuniti"),
+    ],
+    "ZABAVA_I_ESTRADA": [
+        ("celebrity_skandal_frame",  "Rijaliti/estradna zvezda kao skandal, kontroverza, drama"),
+        ("humanizacija_frame",       "Javna ličnost prikazana u privatnom/toplo-humanom svetlu"),
+        ("moralni_pad_frame",        "Estrada kao simptom moralnog/kulturnog pada društva"),
+    ],
+    "MEDIJSKE_SLOBODE": [
+        ("napad_na_medije_frame",    "Novinari ili mediji pod pritiskom, pretnjama ili napadima"),
+        ("cenzura_frame",            "Sistemska cenzura, autocenzura, ograničavanje pristupa informacijama"),
+        ("vlasnicki_uticaj_frame",   "Vlasnički ili politički uticaj na uređivačku politiku"),
     ],
 }
 

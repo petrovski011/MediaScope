@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { UserPlus, Pencil, Trash2, Check, X, ShieldCheck, Eye, Play, Pause, ChevronLeft, ChevronRight } from 'lucide-react'
+import { UserPlus, Pencil, Trash2, Check, X, ShieldCheck, Eye, Play, Pause, ChevronLeft, ChevronRight, Zap, HardDrive } from 'lucide-react'
 import api from '../lib/api'
 
 const ROLES = ['admin', 'researcher', 'viewer']
@@ -307,14 +307,101 @@ function ReanalyzePanel() {
   )
 }
 
+function TriggerPanel() {
+  const [msgs, setMsgs] = useState({})
+  const trigger = async (task) => {
+    setMsgs(m => ({ ...m, [task]: 'Pokrećem...' }))
+    try {
+      const r = await api.post('/admin/tasks/trigger', { task_name: task })
+      setMsgs(m => ({ ...m, [task]: r.data?.message || 'Pokrenuto ✓' }))
+    } catch (e) {
+      setMsgs(m => ({ ...m, [task]: `Greška: ${e.response?.data?.detail || e.message}` }))
+    }
+    setTimeout(() => setMsgs(m => { const n = { ...m }; delete n[task]; return n }), 5000)
+  }
+  const TASKS = [
+    { key: 'detect_anomalies', label: 'Pokreni detect_anomalies' },
+    { key: 'detect_coordination', label: 'Pokreni detect_coordination' },
+    { key: 'detect_copypaste', label: 'Pokreni detect_copypaste' },
+    { key: 'generate_daily_summary', label: 'Generiši dnevni pregled (juče)' },
+    { key: 'consolidate_narrative_proposals', label: 'Klasteriraj narativne predloge' },
+    { key: 'generate_embeddings', label: 'Generiši embeddings' },
+  ]
+  return (
+    <section className="mb-8">
+      <h2 className="text-sm font-semibold mb-3" style={{ color: 'var(--text-primary)' }}>Ručno pokretanje taskova</h2>
+      <div className="grid grid-cols-2 gap-3">
+        {TASKS.map(({ key, label }) => (
+          <div key={key} className="rounded-xl border p-4 flex items-center justify-between"
+            style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+            <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{label}</span>
+            <div className="flex items-center gap-2">
+              {msgs[key] && <span className="text-xs" style={{ color: msgs[key].startsWith('Gr') ? '#f87171' : '#22c55e' }}>{msgs[key]}</span>}
+              <button onClick={() => trigger(key)}
+                className="flex items-center gap-1 px-2.5 py-1 rounded text-xs border hover:bg-white/[0.04] transition-colors"
+                style={{ borderColor: 'var(--border)', color: 'var(--accent)' }}>
+                <Zap size={11} /> Pokreni
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function ResourcesPanel() {
+  const { data, isLoading } = useQuery({
+    queryKey: ['admin-resources'],
+    queryFn: () => api.get('/admin/system/resources').then(r => r.data),
+    refetchInterval: 30_000,
+  })
+
+  const Bar = ({ pct, color }) => (
+    <div className="w-full rounded-full h-2 mt-1" style={{ background: 'var(--bg-elevated)' }}>
+      <div className="h-2 rounded-full transition-all" style={{ width: `${Math.min(100, pct || 0)}%`, background: color }} />
+    </div>
+  )
+
+  if (isLoading) return <div className="text-sm py-8 text-center" style={{ color: 'var(--text-muted)' }}>Učitavanje resursa...</div>
+  if (!data) return <div className="text-sm py-8 text-center" style={{ color: 'var(--text-muted)' }}>Endpoint /admin/system/resources nije dostupan</div>
+
+  const resources = [
+    { label: 'Disk (ukupno)', value: data.disk_used_gb != null ? `${data.disk_used_gb} / ${data.disk_total_gb} GB` : '—', pct: data.disk_pct, color: data.disk_pct > 85 ? '#ef4444' : '#6366f1' },
+    { label: 'RAM', value: data.ram_used_gb != null ? `${data.ram_used_gb} / ${data.ram_total_gb} GB` : '—', pct: data.ram_pct, color: data.ram_pct > 85 ? '#ef4444' : '#3b82f6' },
+    { label: 'CPU (trenutno)', value: data.cpu_pct != null ? `${data.cpu_pct}%` : '—', pct: data.cpu_pct, color: data.cpu_pct > 85 ? '#ef4444' : '#10b981' },
+  ]
+
+  return (
+    <div className="grid grid-cols-3 gap-4">
+      {resources.map(({ label, value, pct, color }) => (
+        <div key={label} className="rounded-xl border p-4" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+          <div className="flex items-center gap-2 mb-1">
+            <HardDrive size={13} style={{ color: 'var(--text-muted)' }} />
+            <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{label}</span>
+          </div>
+          <div className="text-lg font-semibold tabular-nums" style={{ color: 'var(--text-primary)' }}>{value}</div>
+          {pct != null && <Bar pct={pct} color={color} />}
+          {pct != null && <div className="text-xs mt-0.5 text-right" style={{ color: 'var(--text-muted)' }}>{pct.toFixed(1)}%</div>}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+const TABS = ['Administracija', 'Korisnici', 'Logovi', 'Resursi']
+
 export default function Admin() {
   const qc = useQueryClient()
+  const [activeTab, setActiveTab] = useState('Administracija')
   const [editUser, setEditUser] = useState(null)
   const [deleteUser, setDeleteUser] = useState(null)
   const [isNewUser, setIsNewUser] = useState(false)
   const [runsPage, setRunsPage] = useState(1)
   const [runsSource, setRunsSource] = useState('')
   const [batchesPage, setBatchesPage] = useState(1)
+  const [expandedBatch, setExpandedBatch] = useState(null)
+  const [expandedRun, setExpandedRun] = useState(null)
 
   const { data: users = [], isLoading } = useQuery({
     queryKey: ['admin-users'],
@@ -347,265 +434,282 @@ export default function Admin() {
     mutationFn: (data) => api.post('/admin/users', data),
     onSuccess: () => qc.invalidateQueries(['admin-users']),
   })
-
   const updateMutation = useMutation({
     mutationFn: ({ id, ...data }) => api.put(`/admin/users/${id}`, data),
     onSuccess: () => qc.invalidateQueries(['admin-users']),
   })
-
   const deleteMutation = useMutation({
     mutationFn: (id) => api.delete(`/admin/users/${id}`),
     onSuccess: () => { qc.invalidateQueries(['admin-users']); setDeleteUser(null) },
   })
 
-  const handleSaveEdit = async (data) => {
-    await updateMutation.mutateAsync({ id: editUser.id, ...data })
-  }
-
-  const handleSaveNew = async (data) => {
-    await createMutation.mutateAsync(data)
-  }
+  const handleSaveEdit = async (data) => { await updateMutation.mutateAsync({ id: editUser.id, ...data }) }
+  const handleSaveNew = async (data) => { await createMutation.mutateAsync(data) }
 
   const thCls = "px-4 py-2 text-left text-xs font-medium uppercase tracking-wide"
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Admin panel</h1>
-          <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>Upravljanje korisnicima i monitoring</p>
+          <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>Upravljanje sistemom i monitoring</p>
         </div>
       </div>
 
-      <section className="mb-8 space-y-3">
-        <SystemControl
-          label="AI Pipeline"
-          statusKey="pipeline-status"
-          statusUrl="/admin/pipeline/status"
-          pauseUrl="/admin/pipeline/pause"
-          resumeUrl="/admin/pipeline/resume"
-          description="Novi batch-evi nece se pokrenuti dok se pipeline ne nastavi."
-        />
-        <SystemControl
-          label="Scraper"
-          statusKey="scraper-status"
-          statusUrl="/admin/scraper/status"
-          pauseUrl="/admin/scraper/pause"
-          resumeUrl="/admin/scraper/resume"
-          description="Zakazani scraper rundovi nece se pokrenuti dok se scraper ne nastavi."
-        />
-      </section>
-
-      <CalibrationPanel />
-      <ReanalyzePanel />
-
-      {/* Korisnici */}
-      <section className="mb-8">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Korisnici</h2>
-          <button onClick={() => setIsNewUser(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors"
-            style={{ background: 'var(--accent)', color: 'white' }}>
-            <UserPlus size={13} /> Novi korisnik
+      {/* Tab navigacija */}
+      <div className="flex gap-1 mb-6 border-b" style={{ borderColor: 'var(--border)' }}>
+        {TABS.map(tab => (
+          <button key={tab} onClick={() => setActiveTab(tab)}
+            className="px-4 py-2 text-sm font-medium transition-colors rounded-t -mb-px border-b-2"
+            style={{
+              color: activeTab === tab ? 'var(--accent)' : 'var(--text-muted)',
+              borderBottomColor: activeTab === tab ? 'var(--accent)' : 'transparent',
+              background: 'transparent',
+            }}>
+            {tab}
           </button>
-        </div>
+        ))}
+      </div>
 
-        <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
-          {isLoading ? (
-            <div className="py-12 text-center text-sm" style={{ color: 'var(--text-muted)' }}>Učitavanje...</div>
-          ) : (
-            <table className="w-full">
-              <thead style={{ background: 'var(--bg-elevated)' }}>
-                <tr>
-                  {['Ime', 'Email', 'Uloga', 'Status', 'Zadnja prijava', ''].map(h => (
-                    <th key={h} className={thCls} style={{ color: 'var(--text-muted)' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {users.map(u => (
-                  <UserRow key={u.id} user={u}
-                    currentUserId={users.find(x => x.role === 'admin')?.id}
-                    onEdit={setEditUser}
-                    onDelete={setDeleteUser}
-                  />
-                ))}
-              </tbody>
-            </table>
-          )}
+      {/* ---- TAB: Administracija ---- */}
+      {activeTab === 'Administracija' && (
+        <div>
+          <section className="mb-8 space-y-3">
+            <SystemControl label="AI Pipeline" statusKey="pipeline-status"
+              statusUrl="/admin/pipeline/status" pauseUrl="/admin/pipeline/pause" resumeUrl="/admin/pipeline/resume"
+              description="Novi batch-evi nece se pokrenuti dok se pipeline ne nastavi." />
+            <SystemControl label="Scraper" statusKey="scraper-status"
+              statusUrl="/admin/scraper/status" pauseUrl="/admin/scraper/pause" resumeUrl="/admin/scraper/resume"
+              description="Zakazani scraper rundovi nece se pokrenuti dok se scraper ne nastavi." />
+          </section>
+          <TriggerPanel />
+          <CalibrationPanel />
+          <ReanalyzePanel />
         </div>
-      </section>
+      )}
 
-      {/* Pipeline logovi */}
-      <section className="mb-8">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Pipeline logovi (AI analiza)</h2>
-            {batchesTotal > 0 && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{batchesTotal} ukupno</span>}
+      {/* ---- TAB: Korisnici ---- */}
+      {activeTab === 'Korisnici' && (
+        <section>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Korisnici</h2>
+            <button onClick={() => setIsNewUser(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors"
+              style={{ background: 'var(--accent)', color: 'white' }}>
+              <UserPlus size={13} /> Novi korisnik
+            </button>
           </div>
-        </div>
-        <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead style={{ background: 'var(--bg-elevated)' }}>
-                <tr>
-                  {['Batch ID', 'Tip', 'Datum', 'Status', 'Članci', 'Sačuvano', 'Greške', 'Pokrenuto', 'Trajanje'].map(h => (
+          <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+            {isLoading ? (
+              <div className="py-12 text-center text-sm" style={{ color: 'var(--text-muted)' }}>Učitavanje...</div>
+            ) : (
+              <table className="w-full">
+                <thead style={{ background: 'var(--bg-elevated)' }}>
+                  <tr>{['Ime', 'Email', 'Uloga', 'Status', 'Zadnja prijava', ''].map(h => (
                     <th key={h} className={thCls} style={{ color: 'var(--text-muted)' }}>{h}</th>
+                  ))}</tr>
+                </thead>
+                <tbody>
+                  {users.map(u => (
+                    <UserRow key={u.id} user={u}
+                      currentUserId={users.find(x => x.role === 'admin')?.id}
+                      onEdit={setEditUser} onDelete={setDeleteUser} />
                   ))}
-                </tr>
-              </thead>
-              <tbody>
-                {batches.length === 0 ? (
-                  <tr><td colSpan={9} className="px-4 py-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
-                    Nema logova — batch-evi se upisuju od sledećeg noćnog runda.
-                  </td></tr>
-                ) : batches.map(b => {
-                  const durationMs = b.submitted_at && b.finished_at
-                    ? new Date(b.finished_at) - new Date(b.submitted_at)
-                    : null
-                  return (
-                    <tr key={b.id} className="border-b" style={{ borderColor: 'var(--border)' }}>
-                      <td className="px-4 py-2.5 font-mono text-xs max-w-[140px] truncate" style={{ color: 'var(--text-muted)' }}
-                        title={b.batch_id}>{b.batch_id?.slice(0, 20)}…</td>
-                      <td className="px-4 py-2.5 text-xs" style={{ color: 'var(--text-secondary)' }}>{b.batch_type}</td>
-                      <td className="px-4 py-2.5 text-xs" style={{ color: 'var(--text-secondary)' }}>{b.batch_date || '—'}</td>
-                      <td className="px-4 py-2.5">
-                        <span className={`text-xs px-2 py-0.5 rounded ${
-                          b.status === 'completed' ? 'bg-green-500/20 text-green-300' :
-                          b.status === 'failed'    ? 'bg-red-500/20 text-red-300' :
-                          b.status === 'submitted' ? 'bg-blue-500/20 text-blue-300' :
-                                                     'bg-yellow-500/20 text-yellow-300'
-                        }`}>{b.status}</span>
-                      </td>
-                      <td className="px-4 py-2.5 text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>{b.article_count ?? '—'}</td>
-                      <td className="px-4 py-2.5 text-xs tabular-nums text-green-400">{b.articles_saved ?? '—'}</td>
-                      <td className="px-4 py-2.5 text-xs tabular-nums" style={{ color: b.articles_failed > 0 ? '#f87171' : 'var(--text-muted)' }}>
-                        {b.articles_failed ?? '—'}
-                      </td>
-                      <td className="px-4 py-2.5 text-xs" style={{ color: 'var(--text-muted)' }}>
-                        {b.submitted_at ? new Date(b.submitted_at).toLocaleString('sr-Latn', { hour12: false }) : '—'}
-                      </td>
-                      <td className="px-4 py-2.5 text-xs" style={{ color: 'var(--text-muted)' }}>
-                        {durationMs != null ? `${Math.round(durationMs / 60000)}min` : '—'}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+                </tbody>
+              </table>
+            )}
           </div>
+        </section>
+      )}
 
-          {batchesPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-2.5 border-t text-xs"
-              style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
-              <span>Stranica {batchesPage} od {batchesPages}</span>
-              <div className="flex gap-1">
-                <button onClick={() => setBatchesPage(p => Math.max(1, p - 1))} disabled={batchesPage === 1}
-                  className="p-1 rounded disabled:opacity-30 hover:bg-white/[0.04]">
-                  <ChevronLeft size={14} />
-                </button>
-                <button onClick={() => setBatchesPage(p => Math.min(batchesPages, p + 1))} disabled={batchesPage >= batchesPages}
-                  className="p-1 rounded disabled:opacity-30 hover:bg-white/[0.04]">
-                  <ChevronRight size={14} />
-                </button>
+      {/* ---- TAB: Logovi ---- */}
+      {activeTab === 'Logovi' && (
+        <div>
+          {/* Pipeline logovi */}
+          <section className="mb-8">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Pipeline logovi (AI analiza)</h2>
+                {batchesTotal > 0 && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{batchesTotal} ukupno</span>}
               </div>
             </div>
-          )}
-        </div>
-      </section>
-
-      {/* Scraper logovi */}
-      <section>
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Scraper logovi</h2>
-            {runsTotal > 0 && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{runsTotal} ukupno</span>}
-          </div>
-          <input
-            value={runsSource}
-            onChange={e => { setRunsSource(e.target.value); setRunsPage(1) }}
-            placeholder="Filtriraj po izvoru…"
-            className="px-3 py-1.5 rounded text-xs border outline-none w-40"
-            style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-          />
-        </div>
-        <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead style={{ background: 'var(--bg-elevated)' }}>
-                <tr>
-                  {['Izvor', 'Status', 'Pronađeno', 'Novi', 'Ažurirani', 'Trajanje', 'Pokrenuto', 'Greška'].map(h => (
-                    <th key={h} className={thCls} style={{ color: 'var(--text-muted)' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {runs.length === 0 ? (
-                  <tr><td colSpan={8} className="px-4 py-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
-                    Nema logova — scraper počinje da upisuje od sledećeg runda.
-                  </td></tr>
-                ) : runs.map(r => (
-                  <tr key={r.id} className="border-b" style={{ borderColor: 'var(--border)' }}>
-                    <td className="px-4 py-2.5 font-mono text-xs" style={{ color: 'var(--text-primary)' }}>{r.source_id}</td>
-                    <td className="px-4 py-2.5">
-                      <span className={`text-xs px-2 py-0.5 rounded ${
-                        r.status === 'success' ? 'bg-green-500/20 text-green-300' :
-                        r.status === 'error'   ? 'bg-red-500/20 text-red-300' :
-                        r.status === 'running' ? 'bg-blue-500/20 text-blue-300' :
-                                                'bg-yellow-500/20 text-yellow-300'
-                      }`}>{r.status}</span>
-                    </td>
-                    <td className="px-4 py-2.5 text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>{r.articles_found ?? '—'}</td>
-                    <td className="px-4 py-2.5 text-xs tabular-nums text-green-400">{r.articles_new ?? '—'}</td>
-                    <td className="px-4 py-2.5 text-xs tabular-nums" style={{ color: 'var(--text-secondary)' }}>{r.articles_updated ?? '—'}</td>
-                    <td className="px-4 py-2.5 text-xs" style={{ color: 'var(--text-muted)' }}>
-                      {r.duration_ms ? `${(r.duration_ms / 1000).toFixed(1)}s` : '—'}
-                    </td>
-                    <td className="px-4 py-2.5 text-xs" style={{ color: 'var(--text-muted)' }}>
-                      {r.started_at ? new Date(r.started_at).toLocaleString('sr-Latn', { hour12: false }) : '—'}
-                    </td>
-                    <td className="px-4 py-2.5 text-xs" style={{ color: '#f87171' }}>
-                      {r.error_type || ''}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {runsPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-2.5 border-t text-xs"
-              style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
-              <span>Stranica {runsPage} od {runsPages}</span>
-              <div className="flex gap-1">
-                <button onClick={() => setRunsPage(p => Math.max(1, p - 1))} disabled={runsPage === 1}
-                  className="p-1 rounded disabled:opacity-30 hover:bg-white/[0.04]">
-                  <ChevronLeft size={14} />
-                </button>
-                <button onClick={() => setRunsPage(p => Math.min(runsPages, p + 1))} disabled={runsPage >= runsPages}
-                  className="p-1 rounded disabled:opacity-30 hover:bg-white/[0.04]">
-                  <ChevronRight size={14} />
-                </button>
+            <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead style={{ background: 'var(--bg-elevated)' }}>
+                    <tr>{['Batch ID', 'Tip', 'Datum', 'Status', 'Ukupno', 'Sačuvano', 'Greške', 'Pokrenuto', 'Trajanje', 'Poruka'].map(h => (
+                      <th key={h} className={thCls} style={{ color: 'var(--text-muted)' }}>{h}</th>
+                    ))}</tr>
+                  </thead>
+                  <tbody>
+                    {batches.length === 0 ? (
+                      <tr><td colSpan={10} className="px-4 py-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
+                        Nema logova — batch-evi se upisuju od sledećeg noćnog runda.
+                      </td></tr>
+                    ) : batches.map(b => {
+                      const durationMs = b.submitted_at && b.finished_at
+                        ? new Date(b.finished_at) - new Date(b.submitted_at) : null
+                      const isExp = expandedBatch === b.id
+                      return [
+                        <tr key={b.id} className="border-b cursor-pointer hover:bg-white/[0.02]"
+                          style={{ borderColor: 'var(--border)' }}
+                          onClick={() => setExpandedBatch(isExp ? null : b.id)}>
+                          <td className="px-4 py-2.5 font-mono text-xs max-w-[140px] truncate" style={{ color: 'var(--text-muted)' }}
+                            title={b.batch_id}>{b.batch_id?.slice(0, 16)}…</td>
+                          <td className="px-4 py-2.5 text-xs" style={{ color: 'var(--text-secondary)' }}>{b.batch_type}</td>
+                          <td className="px-4 py-2.5 text-xs" style={{ color: 'var(--text-secondary)' }}>{b.batch_date || '—'}</td>
+                          <td className="px-4 py-2.5">
+                            <span className={`text-xs px-2 py-0.5 rounded ${
+                              b.status === 'completed' ? 'bg-green-500/20 text-green-300' :
+                              b.status === 'failed'    ? 'bg-red-500/20 text-red-300' :
+                              b.status === 'submitted' ? 'bg-blue-500/20 text-blue-300' :
+                                                         'bg-yellow-500/20 text-yellow-300'
+                            }`}>{b.status}</span>
+                          </td>
+                          <td className="px-4 py-2.5 text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>{b.article_count ?? '—'}</td>
+                          <td className="px-4 py-2.5 text-xs tabular-nums text-green-400">{b.articles_saved ?? '—'}</td>
+                          <td className="px-4 py-2.5 text-xs tabular-nums" style={{ color: b.articles_failed > 0 ? '#f87171' : 'var(--text-muted)' }}>
+                            {b.articles_failed ?? '—'}
+                          </td>
+                          <td className="px-4 py-2.5 text-xs" style={{ color: 'var(--text-muted)' }}>
+                            {b.submitted_at ? new Date(b.submitted_at).toLocaleString('sr-Latn', { hour12: false }) : '—'}
+                          </td>
+                          <td className="px-4 py-2.5 text-xs" style={{ color: 'var(--text-muted)' }}>
+                            {durationMs != null ? `${Math.round(durationMs / 60000)}min` : '—'}
+                          </td>
+                          <td className="px-4 py-2.5 text-xs max-w-[160px] truncate" style={{ color: '#f87171' }}
+                            title={b.error_message}>{b.error_message?.slice(0, 40) || ''}</td>
+                        </tr>,
+                        isExp && b.error_message && (
+                          <tr key={`${b.id}-exp`} style={{ background: 'var(--bg-elevated)' }}>
+                            <td colSpan={10} className="px-4 py-2">
+                              <pre className="text-xs whitespace-pre-wrap break-all" style={{ color: '#f87171' }}>{b.error_message}</pre>
+                            </td>
+                          </tr>
+                        ),
+                      ]
+                    })}
+                  </tbody>
+                </table>
               </div>
+              {batchesPages > 1 && (
+                <div className="flex items-center justify-between px-4 py-2.5 border-t text-xs"
+                  style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
+                  <span>Stranica {batchesPage} od {batchesPages}</span>
+                  <div className="flex gap-1">
+                    <button onClick={() => setBatchesPage(p => Math.max(1, p - 1))} disabled={batchesPage === 1}
+                      className="p-1 rounded disabled:opacity-30 hover:bg-white/[0.04]"><ChevronLeft size={14} /></button>
+                    <button onClick={() => setBatchesPage(p => Math.min(batchesPages, p + 1))} disabled={batchesPage >= batchesPages}
+                      className="p-1 rounded disabled:opacity-30 hover:bg-white/[0.04]"><ChevronRight size={14} /></button>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
+          </section>
+
+          {/* Scraper logovi */}
+          <section>
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Scraper logovi</h2>
+                {runsTotal > 0 && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{runsTotal} ukupno</span>}
+              </div>
+              <input value={runsSource} onChange={e => { setRunsSource(e.target.value); setRunsPage(1) }}
+                placeholder="Filtriraj po izvoru…"
+                className="px-3 py-1.5 rounded text-xs border outline-none w-40"
+                style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border)', color: 'var(--text-primary)' }} />
+            </div>
+            <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead style={{ background: 'var(--bg-elevated)' }}>
+                    <tr>{['Izvor', 'Status', 'Pronađeno', 'Novi', 'Preskočeni', 'Ažurirani', 'Trajanje', 'Pokrenuto', 'Tip greške'].map(h => (
+                      <th key={h} className={thCls} style={{ color: 'var(--text-muted)' }}>{h}</th>
+                    ))}</tr>
+                  </thead>
+                  <tbody>
+                    {runs.length === 0 ? (
+                      <tr><td colSpan={9} className="px-4 py-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
+                        Nema logova — scraper počinje da upisuje od sledećeg runda.
+                      </td></tr>
+                    ) : runs.map(r => {
+                      const isExp = expandedRun === r.id
+                      return [
+                        <tr key={r.id} className="border-b cursor-pointer hover:bg-white/[0.02]"
+                          style={{ borderColor: 'var(--border)' }}
+                          onClick={() => setExpandedRun(isExp ? null : r.id)}>
+                          <td className="px-4 py-2.5 font-mono text-xs" style={{ color: 'var(--text-primary)' }}>{r.source_id}</td>
+                          <td className="px-4 py-2.5">
+                            <span className={`text-xs px-2 py-0.5 rounded ${
+                              r.status === 'success' ? 'bg-green-500/20 text-green-300' :
+                              r.status === 'error'   ? 'bg-red-500/20 text-red-300' :
+                              r.status === 'running' ? 'bg-blue-500/20 text-blue-300' :
+                                                      'bg-yellow-500/20 text-yellow-300'
+                            }`}>{r.status}</span>
+                          </td>
+                          <td className="px-4 py-2.5 text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>{r.articles_found ?? '—'}</td>
+                          <td className="px-4 py-2.5 text-xs tabular-nums text-green-400">{r.articles_new ?? '—'}</td>
+                          <td className="px-4 py-2.5 text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>{r.articles_skipped ?? '—'}</td>
+                          <td className="px-4 py-2.5 text-xs tabular-nums" style={{ color: 'var(--text-secondary)' }}>{r.articles_updated ?? '—'}</td>
+                          <td className="px-4 py-2.5 text-xs" style={{ color: 'var(--text-muted)' }}>
+                            {r.duration_ms ? `${(r.duration_ms / 1000).toFixed(1)}s` : '—'}
+                          </td>
+                          <td className="px-4 py-2.5 text-xs" style={{ color: 'var(--text-muted)' }}>
+                            {r.started_at ? new Date(r.started_at).toLocaleString('sr-Latn', { hour12: false }) : '—'}
+                          </td>
+                          <td className="px-4 py-2.5 text-xs max-w-[160px] truncate" style={{ color: '#f87171' }}
+                            title={r.error_message}>{r.error_type || ''}</td>
+                        </tr>,
+                        isExp && (r.error_message || r.error_type) && (
+                          <tr key={`${r.id}-exp`} style={{ background: 'var(--bg-elevated)' }}>
+                            <td colSpan={9} className="px-4 py-2">
+                              <pre className="text-xs whitespace-pre-wrap break-all" style={{ color: '#f87171' }}>
+                                {r.error_type ? `[${r.error_type}] ` : ''}{r.error_message || ''}
+                              </pre>
+                            </td>
+                          </tr>
+                        ),
+                      ]
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {runsPages > 1 && (
+                <div className="flex items-center justify-between px-4 py-2.5 border-t text-xs"
+                  style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
+                  <span>Stranica {runsPage} od {runsPages}</span>
+                  <div className="flex gap-1">
+                    <button onClick={() => setRunsPage(p => Math.max(1, p - 1))} disabled={runsPage === 1}
+                      className="p-1 rounded disabled:opacity-30 hover:bg-white/[0.04]"><ChevronLeft size={14} /></button>
+                    <button onClick={() => setRunsPage(p => Math.min(runsPages, p + 1))} disabled={runsPage >= runsPages}
+                      className="p-1 rounded disabled:opacity-30 hover:bg-white/[0.04]"><ChevronRight size={14} /></button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
         </div>
-      </section>
+      )}
+
+      {/* ---- TAB: Resursi ---- */}
+      {activeTab === 'Resursi' && (
+        <div>
+          <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Sistemski resursi</h2>
+          <ResourcesPanel />
+        </div>
+      )}
 
       {/* Modali */}
       {(editUser || isNewUser) && (
-        <EditModal
-          user={isNewUser ? null : editUser}
+        <EditModal user={isNewUser ? null : editUser}
           onClose={() => { setEditUser(null); setIsNewUser(false) }}
-          onSave={isNewUser ? handleSaveNew : handleSaveEdit}
-        />
+          onSave={isNewUser ? handleSaveNew : handleSaveEdit} />
       )}
       {deleteUser && (
-        <ConfirmModal
-          user={deleteUser}
+        <ConfirmModal user={deleteUser}
           onClose={() => setDeleteUser(null)}
-          onConfirm={() => deleteMutation.mutate(deleteUser.id)}
-        />
+          onConfirm={() => deleteMutation.mutate(deleteUser.id)} />
       )}
     </div>
   )

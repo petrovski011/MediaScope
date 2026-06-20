@@ -1,7 +1,8 @@
 """Istrazivacki prostor: anotacije, sacuvane pretrage, watchliste."""
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, Any
 
@@ -14,6 +15,23 @@ router = APIRouter(tags=["userspace"])
 # ---- Anotacije ----
 class AnnotationCreate(BaseModel):
     body: str
+    is_private: bool = False
+
+
+class AnnotationUpdate(BaseModel):
+    body: str
+
+
+def _annotation_dict(a, author_name: str = None):
+    return {
+        "id": a.id,
+        "body": a.body,
+        "user_id": a.user_id,
+        "author_name": author_name or f"Korisnik {a.user_id}",
+        "is_private": a.is_private,
+        "created_at": a.created_at.isoformat() if a.created_at else None,
+        "updated_at": a.updated_at.isoformat() if a.updated_at else None,
+    }
 
 
 @router.get("/articles/{article_id}/annotations")
@@ -22,13 +40,25 @@ async def list_annotations(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    rows = (await db.execute(
-        select(Annotation).where(Annotation.article_id == article_id).order_by(desc(Annotation.created_at))
-    )).scalars().all()
+    rows = (await db.execute(text("""
+        SELECT a.id, a.body, a.user_id, a.is_private, a.created_at, a.updated_at,
+               u.username AS author_name
+        FROM annotations a
+        LEFT JOIN users u ON u.id = a.user_id
+        WHERE a.article_id = :article_id
+          AND (a.is_private = FALSE OR a.user_id = :uid)
+        ORDER BY a.created_at DESC
+    """), {"article_id": article_id, "uid": current_user.id})).all()
+
     return {"annotations": [
-        {"id": a.id, "body": a.body, "user_id": a.user_id,
-         "created_at": a.created_at.isoformat() if a.created_at else None}
-        for a in rows
+        {
+            "id": r.id, "body": r.body, "user_id": r.user_id,
+            "author_name": r.author_name or f"Korisnik {r.user_id}",
+            "is_private": r.is_private,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+        }
+        for r in rows
     ]}
 
 
@@ -39,11 +69,35 @@ async def create_annotation(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    a = Annotation(article_id=article_id, user_id=current_user.id, body=body.body.strip())
+    a = Annotation(
+        article_id=article_id,
+        user_id=current_user.id,
+        body=body.body.strip(),
+        is_private=body.is_private,
+    )
     db.add(a)
     await db.commit()
     await db.refresh(a)
-    return {"id": a.id, "body": a.body, "created_at": a.created_at.isoformat() if a.created_at else None}
+    return {"id": a.id, "body": a.body, "is_private": a.is_private,
+            "created_at": a.created_at.isoformat() if a.created_at else None}
+
+
+@router.put("/annotations/{annotation_id}")
+async def update_annotation(
+    annotation_id: int,
+    body: AnnotationUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    a = await db.get(Annotation, annotation_id)
+    if not a:
+        raise HTTPException(status_code=404, detail="NOT_FOUND")
+    if a.user_id != current_user.id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="FORBIDDEN")
+    a.body = body.body.strip()
+    a.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    return {"id": a.id, "body": a.body, "updated_at": a.updated_at.isoformat()}
 
 
 @router.delete("/annotations/{annotation_id}")
