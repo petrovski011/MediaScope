@@ -58,8 +58,10 @@ def run(dry_run: bool = False):
     import os
     dsn = os.environ.get(
         "DATABASE_URL",
-        "postgresql://mediascope:mediascope@db:5432/mediascope",
+        "postgresql://mediascope:mediascope@postgres:5432/mediascope",
     )
+    # SQLAlchemy async DSN koristi postgresql+asyncpg:// — psycopg2 treba postgresql://
+    dsn = dsn.replace("postgresql+asyncpg://", "postgresql://")
 
     conn = psycopg2.connect(dsn)
     cur = conn.cursor()
