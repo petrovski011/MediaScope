@@ -14,6 +14,7 @@ import Topics from './pages/Topics'
 import Framing from './pages/Framing'
 import Anomalies from './pages/Anomalies'
 import Coordination from './pages/Coordination'
+import Political from './pages/Political'
 import Alerts from './pages/Alerts'
 import Admin from './pages/Admin'
 
@@ -53,6 +54,7 @@ export default function App() {
             <Route path="framing" element={<Framing />} />
             <Route path="anomalies" element={<Anomalies />} />
             <Route path="coordination" element={<Coordination />} />
+            <Route path="political" element={<Political />} />
             <Route path="alerts" element={<Alerts />} />
             <Route path="admin" element={<AdminGuard><Admin /></AdminGuard>} />
           </Route>

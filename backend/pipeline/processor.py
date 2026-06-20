@@ -77,6 +77,7 @@ async def _save_analysis(pg: asyncpg.Connection, article_id: int, data: dict) ->
             political_score, value_score, sensationalism,
             sentiment, sentiment_score,
             topic_explanation, political_explanation, value_explanation,
+            populist_framing, populist_confidence,
             model_used, analysis_version, analyzed_at
         ) VALUES (
             $1,
@@ -84,7 +85,8 @@ async def _save_analysis(pg: asyncpg.Connection, article_id: int, data: dict) ->
             $5, $6, $7,
             $8, $9,
             $10, $11, $12,
-            $13, $14, $15
+            $13, $14,
+            $15, $16, $17
         )
         ON CONFLICT (article_id) DO UPDATE SET
             topics = EXCLUDED.topics,
@@ -98,6 +100,8 @@ async def _save_analysis(pg: asyncpg.Connection, article_id: int, data: dict) ->
             topic_explanation = EXCLUDED.topic_explanation,
             political_explanation = EXCLUDED.political_explanation,
             value_explanation = EXCLUDED.value_explanation,
+            populist_framing = EXCLUDED.populist_framing,
+            populist_confidence = EXCLUDED.populist_confidence,
             model_used = EXCLUDED.model_used,
             analysis_version = EXCLUDED.analysis_version,
             analyzed_at = EXCLUDED.analyzed_at
@@ -114,6 +118,8 @@ async def _save_analysis(pg: asyncpg.Connection, article_id: int, data: dict) ->
         data.get("topic_explanation"),
         data.get("political_explanation"),
         data.get("value_explanation"),
+        bool(data.get("populist_framing")),
+        data.get("populist_confidence"),
         settings.ANTHROPIC_MODEL,
         PIPELINE_VERSION,
         datetime.now(timezone.utc),
@@ -138,6 +144,7 @@ async def _save_entities(
         if etype not in ("person", "organization", "location"):
             etype = "person"
 
+        is_political = bool(ent.get("is_political_actor"))
         row = await pg.fetchrow(
             "SELECT id FROM entities WHERE name = $1 AND entity_type = $2",
             name,
@@ -145,16 +152,23 @@ async def _save_entities(
         )
         if row:
             entity_id = row["id"]
+            if is_political:
+                # sticky-true: jednom oznacen kao politicki akter, ostaje
+                await pg.execute(
+                    "UPDATE entities SET is_political_actor = TRUE, updated_at = NOW() WHERE id = $1",
+                    entity_id,
+                )
         else:
             entity_id = await pg.fetchval(
                 """
-                INSERT INTO entities (name, entity_type, created_at, updated_at)
-                VALUES ($1, $2, NOW(), NOW())
+                INSERT INTO entities (name, entity_type, is_political_actor, created_at, updated_at)
+                VALUES ($1, $2, $3, NOW(), NOW())
                 ON CONFLICT (name, entity_type) DO UPDATE SET updated_at = NOW()
                 RETURNING id
                 """,
                 name,
                 etype,
+                is_political,
             )
             created += 1
 

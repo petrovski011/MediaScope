@@ -57,6 +57,10 @@ class ArticleAnalysis(Base):
     calibration_applied = Column(Boolean, default=False)
     calibration_notes = Column(Text)
 
+    # Meta-framing: populisticki 'narod vs elite' obrazac (Faza 10)
+    populist_framing = Column(Boolean, default=False)
+    populist_confidence = Column(Float)
+
 
 class Entity(Base):
     __tablename__ = "entities"

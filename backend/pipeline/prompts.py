@@ -165,6 +165,8 @@ Identifikuj SVE znacajne entitete (max 15):
 
 Normalizuj varijante istog entiteta (Vucic = Aleksandar Vucic = predsednik Srbije -> "Aleksandar Vucic").
 Ne ukljucuj genericne pojmove ("vlada", "novinari") - samo konkretne aktere.
+Za svaki entitet oznaci is_political_actor (true ako je politicki akter: funkcioner, stranka,
+politicar, drzavna institucija, politicki relevantna licnost; inace false).
 
 ## 2. Tematska klasifikacija
 Odredi primarnu temu (jednu) i sekundarne (max 3) sa confidence scorovima.
@@ -207,6 +209,12 @@ Pogledaj KATALOG FRAMING OKVIRA u sistemskim instrukcijama. Za framing vazi:
   (naziv u stilu "..._frame", opis, citat). Ne izmisljaj okvire bez osnova.
 - Ako nijedan okvir nije izrazit, vrati praznu listu.
 
+## 5b. Meta-framing: narod vs. elite (populisticki obrazac)
+Oceni da li clanak koristi populisticki "narod vs. elite" okvir — suprotstavljanje
+"obicnog naroda" / "nas" nasuprot "eliti" / "njima" (strane sile, tajkuni, opozicione elite,
+Brisel, "domaci izdajnici"). Vrati populist_framing (true/false) i populist_confidence (0.0-1.0).
+Ovo je transverzalni obrazac, nezavisan od konkretne teme.
+
 ## 5. Narativi
 Pogledaj KATALOG NARATIVA u sistemskim instrukcijama (ako postoji). Za narative vazi:
 - Mapiraj clanak na narative iz kataloga koji su JASNO prisutni. Koristi TACAN narrative_id iz kataloga.
@@ -224,7 +232,8 @@ Vrati ISKLJUCIVO ovaj JSON (bez ikakvih objasnjenja van JSON-a):
       "type": "person",
       "mention_count": 3,
       "has_quote": true,
-      "is_main_subject": true
+      "is_main_subject": true,
+      "is_political_actor": true
     }}
   ],
   "primary_topic": "EU_INTEGRACIJE",
@@ -241,6 +250,8 @@ Vrati ISKLJUCIVO ovaj JSON (bez ikakvih objasnjenja van JSON-a):
   "sensationalism": 0.61,
   "sentiment": "negative",
   "sentiment_score": -0.55,
+  "populist_framing": true,
+  "populist_confidence": 0.74,
   "framings": [
     {{"framing_type": "uslovljavanje_frame", "confidence": 0.82, "supporting_text": "...citat iz clanka..."}},
     {{"framing_type": "conflict_frame", "confidence": 0.61, "supporting_text": "...citat iz clanka..."}}
