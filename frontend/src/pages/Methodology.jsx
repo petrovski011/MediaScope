@@ -265,16 +265,16 @@ export default function Methodology() {
             <Note kind="info">Tišina se računa samo nad skrejpovanim i analiziranim člancima; odsustvo pokrivenosti ne mora značiti namernu cenzuru.</Note>
           </Section>
 
-          <Section id="origin" icon={Clock} title="10. Origin tracking (Tanjug paradoks)">
+          <Section id="origin" icon={Clock} title="10. Origin tracking">
             <p>Prati <strong>ko je prvi objavio</strong> temu i kako se širila kroz medijski prostor (broj izvora, vreme širenja).</p>
-            <Note kind="warn">
-              <strong>Tanjug paradoks:</strong> Tanjug izlaže samo datum bez tačnog vremena (<code>has_timestamp_time = FALSE</code>). Kao državna agencija ključan je za origin tracking (tekstovi mu se preuzimaju gotovo doslovno), ali baš njemu vreme nije pouzdano. Zato: ako je prvi izvor bez tačnog vremena, redosled unutar dana se <strong>ne tvrdi</strong>, a „vreme širenja" se računa samo preko izvora sa tačnim vremenom. UI to eksplicitno označava.
+            <Note kind="info">
+              Svi aktivni izvori (uključujući RTS i Tanjug) imaju tačne timestamps od juna 2026. — RTS putem RSS feed-a, Tanjug putem <code>article:published_time</code> meta taga. Ako je <code>published_at</code> nepoznat (NULL za starije arhivske članke), redosled unutar dana se <strong>ne tvrdi</strong> i UI to eksplicitno označava.
             </Note>
-            <p className="text-xs" style={{ color: C.muted }}>RTS od juna 2026. dobija tačne timestamps putem RSS feed-a i uključen je u analizu (<code>has_timestamp_time = TRUE</code>). Stariji RTS članci (pre prelaska na RSS) nemaju pouzdano vreme i isključeni su iz temporalne analize.</p>
+            <p className="text-xs" style={{ color: C.muted }}>Stariji RTS i Tanjug članci (pre juna 2026.) imaju NULL published_at i isključeni su iz temporalne analize.</p>
           </Section>
 
           <Section id="intraday" icon={Sunrise} title="11. Intra-day analiza">
-            <p>Distribucija tema kroz delove dana (jutarnji/podnevni/večernji ciklus plasiranja). <strong>Isključuje Tanjug</strong> (date-only) jer mu sat nije pouzdan — UI uvek prikazuje tu napomenu.</p>
+            <p>Distribucija tema kroz delove dana (jutarnji/podnevni/večernji ciklus plasiranja). Članci bez <code>published_at</code> (starija arhiva RTS/Tanjug) se ne prikazuju u ovoj analizi.</p>
           </Section>
 
           <Section id="politicka" icon={Landmark} title="12. Politička analiza">
@@ -315,13 +315,13 @@ export default function Methodology() {
               ['Silence', '≥5 članaka kroz ≥3 izvora; izvor sa 0 = tih'],
               ['Kalibracija', 'nedeljno; re-analiza ≤200; sličnost ≥0.88'],
               ['SIMILAR_ARTICLES_THRESHOLD', '0.80 (slični članci)'],
-              ['Intra-day / origin', 'isključuje Tanjug (date-only); RTS uključen od jun 2026.'],
+              ['Intra-day / origin', 'svi izvori uključeni; članci bez published_at preskočeni'],
             ]} />
           </Section>
 
           <Section id="ograde" icon={AlertTriangle} title="15. Ograničenja i metodološke ograde">
             <ul className="list-disc pl-5 space-y-1.5">
-              <li><strong>Tanjug</strong> nema tačno vreme objave (samo datum) — isključen iz intra-day analize; u origin trackingu se ne tvrdi redosled unutar dana.</li>
+              <li><strong>Starija arhiva RTS/Tanjug</strong> (pre juna 2026.) nema tačno vreme objave — ti članci imaju <code>published_at = NULL</code> i isključeni su iz temporalne analize. Novi članci oba izvora imaju tačne timestamps.</li>
               <li><strong>Korelacija ≠ namera.</strong> Koordinacija i poklapanja su signali, ne dokazi; interpretacija je na istraživaču.</li>
               <li><strong>Vlasnička grupa je kontekst, ne dokaz</strong> — koordinacija unutar iste grupe ima drugačije značenje.</li>
               <li><strong>Degradirani slojevi:</strong> autor (~72% pokrivenosti, varljiv format), tagovi (~53%), broj komentara (~10%) — koriste se samo kao dopunski signali, ne kao zasebne analize.</li>

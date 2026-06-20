@@ -682,11 +682,10 @@ def detect_origin(window_days: int = 7):
     """
     Origin tracking: za svaku aktivnu temu u prozoru, ko je PRVI objavio i kako se sirilo.
 
-    Tanjug paradoks: Tanjug (has_timestamp_time=FALSE) ima samo datum bez vremena,
-    pa se ne moze pouzdano poredati unutar dana. Ako je prvi clanak iz date-only izvora,
-    has_exact_time=FALSE i UI prikazuje ogradu umesto tvrdnje o redosledu.
-    spread_hours se racuna SAMO preko exact-time izvora.
-    Napomena: RTS od juna 2026. dobija tacne timestamps via RSS — ukljucen u analizu.
+    Svi aktivni izvori (ukljucujuci RTS i Tanjug) imaju has_timestamp_time=TRUE od juna 2026.
+    RTS dobija tacne timestamps via RSS; Tanjug via article:published_time meta tag.
+    Ako je prvi clanak bez published_at (NULL), has_exact_time=FALSE i UI prikazuje ogradu.
+    spread_hours se racuna samo preko clanaka sa nepraznim published_at.
     """
     logger.info("detect_origin: pocinje")
 

@@ -126,13 +126,17 @@ class TanjugScraper(BaseScraper):
             if isinstance(a, dict):
                 author = a.get("name")
 
-        # Published date — "18. jun 2026"
+        # Published timestamp — article:published_time has exact datetime (e.g. "2026-06-20 13:28:00")
         published_at: Optional[datetime] = None
-        date_el = soup.find(class_=lambda c: c and "date" in c.lower())
-        if date_el:
-            published_at = parse_sr_date(date_el.get_text(strip=True))
+        og_pub = soup.find("meta", property="article:published_time")
+        if og_pub and og_pub.get("content"):
+            published_at = parse_sr_date(og_pub["content"])
         if not published_at and schema_data:
             published_at = parse_sr_date(schema_data.get("datePublished", ""))
+        if not published_at:
+            date_el = soup.find(class_=lambda c: c and "single-news-time" in c.lower())
+            if date_el:
+                published_at = parse_sr_date(date_el.get_text(strip=True))
 
         # Category
         category: Optional[str] = None
