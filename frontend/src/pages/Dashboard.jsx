@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { Newspaper, Radio, TrendingUp, Activity, Sun } from 'lucide-react'
@@ -38,24 +39,41 @@ function IntradayCard({ filterParams }) {
 }
 
 function MorningSummary() {
+  const [selectedDate, setSelectedDate] = useState(null)
   const { data, isLoading } = useQuery({
-    queryKey: ['morning-summary'],
-    queryFn: () => api.get('/summary').then(r => r.data),
+    queryKey: ['morning-summary', selectedDate],
+    queryFn: () => api.get(`/summary${selectedDate ? `?target_date=${selectedDate}` : ''}`).then(r => r.data),
     staleTime: 30 * 60 * 1000,
+    retry: false,
+  })
+  const { data: history } = useQuery({
+    queryKey: ['summary-history'],
+    queryFn: () => api.get('/summary/history?limit=30').then(r => r.data.summaries),
     retry: false,
   })
 
   if (isLoading || !data?.narrative) return null
   const n = data.narrative
+  const summaries = history || []
 
   return (
     <div className="rounded-xl border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
       <div className="px-4 py-3 border-b flex items-center gap-2" style={{ borderColor: 'var(--border)' }}>
         <Sun size={14} style={{ color: '#f59e0b' }} />
         <h2 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-          Jutarnji pregled — {data.date}
+          {selectedDate ? 'Dnevni pregled' : 'Jutarnji pregled'} — {data.date}
         </h2>
-        <span className="text-xs ml-auto" style={{ color: 'var(--text-muted)' }}>AI generisano</span>
+        {summaries.length > 1 && (
+          <select value={selectedDate || ''} onChange={e => setSelectedDate(e.target.value || null)}
+            className="ml-auto text-xs px-2 py-1 rounded border outline-none"
+            style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
+            <option value="">Najnoviji</option>
+            {summaries.map(s => (
+              <option key={s.date} value={s.date}>{s.date}{s.headline ? ` — ${s.headline.slice(0, 40)}` : ''}</option>
+            ))}
+          </select>
+        )}
+        {summaries.length <= 1 && <span className="text-xs ml-auto" style={{ color: 'var(--text-muted)' }}>AI generisano</span>}
       </div>
       <div className="p-4 space-y-3">
         {n.headline && (

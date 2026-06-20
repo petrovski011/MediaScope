@@ -256,6 +256,7 @@ async def topics_timeline(
 @router.get("/summary")
 async def get_daily_summary(
     target_date: Optional[str] = Query(default=None),
+    db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     """
@@ -276,7 +277,46 @@ async def get_daily_summary(
         if cached:
             return json.loads(cached)
 
+    # Fallback: daily_summaries tabela (Redis TTL je istekao, ali istorijat postoji)
+    from sqlalchemy import text as _text
+    for d in check_dates:
+        row = (await db.execute(_text(
+            "SELECT summary_text FROM daily_summaries WHERE date::text = :d"
+        ), {"d": d})).first()
+        if row and row.summary_text:
+            try:
+                return json.loads(row.summary_text)
+            except (ValueError, TypeError):
+                pass
     return None
+
+
+@router.get("/summary/history")
+async def summary_history(
+    limit: int = Query(default=30, ge=1, le=180),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Istorijat dnevnih pregleda (za arhivu). Vraca naslov + meta po danu."""
+    from sqlalchemy import text as _text
+    rows = (await db.execute(_text(
+        "SELECT date::text AS date, summary_text, article_count, generated_at FROM daily_summaries "
+        "ORDER BY date DESC LIMIT :limit"
+    ), {"limit": limit})).all()
+    out = []
+    for r in rows:
+        headline = None
+        try:
+            headline = (json.loads(r.summary_text).get("narrative") or {}).get("headline")
+        except (ValueError, TypeError):
+            pass
+        out.append({
+            "date": r.date,
+            "headline": headline,
+            "article_count": r.article_count,
+            "generated_at": r.generated_at.isoformat() if r.generated_at else None,
+        })
+    return {"summaries": out}
 
 
 @router.get("/intraday")

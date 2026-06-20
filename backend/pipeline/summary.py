@@ -103,6 +103,40 @@ async def _fetch_daily_stats(target_date: date) -> dict:
         await pg.close()
 
 
+async def persist_summary(summary: dict) -> None:
+    """Upisuje dnevni pregled u daily_summaries tabelu (istorijat, preživljava Redis TTL).
+
+    Pun narrative+stats se cuva kao JSON u summary_text; strukturne kolone radi upita.
+    """
+    stats = summary.get("stats", {})
+    narrative = summary.get("narrative", {})
+    summary_date = date.fromisoformat(summary["date"]) if isinstance(summary["date"], str) else summary["date"]
+    pg = await asyncpg.connect(PG_DSN)
+    try:
+        await pg.execute(
+            """
+            INSERT INTO daily_summaries
+                (date, summary_text, top_topics, article_count, coordination_alerts, model_used, generated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, NOW())
+            ON CONFLICT (date) DO UPDATE SET
+                summary_text = EXCLUDED.summary_text,
+                top_topics = EXCLUDED.top_topics,
+                article_count = EXCLUDED.article_count,
+                coordination_alerts = EXCLUDED.coordination_alerts,
+                model_used = EXCLUDED.model_used,
+                generated_at = EXCLUDED.generated_at
+            """,
+            summary_date,
+            json.dumps(summary, ensure_ascii=False),
+            [t["topic"] for t in stats.get("top_topics", []) if t.get("topic")],
+            int(stats.get("total_articles", 0)),
+            int(stats.get("copypaste_pairs", 0)),
+            summary.get("model_used"),
+        )
+    finally:
+        await pg.close()
+
+
 def generate_summary(stats: dict) -> dict:
     """Poziva Claude da generise narativni pregled na osnovu statistika."""
     client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)

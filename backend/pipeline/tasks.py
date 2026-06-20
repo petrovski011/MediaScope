@@ -1234,7 +1234,10 @@ def generate_morning_summary(self, target_date: str = None):
         summary["generated_at"] = datetime.now(timezone.utc).isoformat()
 
         r.set(redis_key, json.dumps(summary, ensure_ascii=False), ex=REDIS_TTL)
-        logger.info("Summary za %s generisan i sacuvan u Redis", target)
+        # Persistuj u daily_summaries (istorijat — prezivljava Redis TTL)
+        from pipeline.summary import persist_summary
+        asyncio.get_event_loop().run_until_complete(persist_summary(summary))
+        logger.info("Summary za %s generisan, sacuvan u Redis + daily_summaries", target)
         return {"status": "done", "date": target.isoformat()}
 
     except Exception as exc:
