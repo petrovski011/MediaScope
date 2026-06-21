@@ -302,10 +302,15 @@ async def _save_narratives(
         supporting_text = (n.get("supporting_text") or "")[:500] or None
         if nid is None or confidence is None:
             continue
+        try:
+            nid_int = int(nid)
+        except (TypeError, ValueError):
+            logger.debug("Narrative_id '%s' nije validan int — preskacem", nid)
+            continue
         # Mapiraj samo na postojeci, aktivan, validiran narativ (model moze pogresiti id)
         valid = await pg.fetchval(
             "SELECT id FROM narratives WHERE id = $1 AND is_active = TRUE AND is_validated = TRUE",
-            int(nid),
+            nid_int,
         )
         if not valid:
             logger.debug("Narrative_id %s nije validan/aktivan — preskacem", nid)
@@ -319,7 +324,7 @@ async def _save_narratives(
                     confidence = EXCLUDED.confidence,
                     supporting_text = EXCLUDED.supporting_text
                 """,
-                article_id, int(nid), float(confidence), supporting_text,
+                article_id, nid_int, float(confidence), supporting_text,
             )
         except Exception as e:
             logger.warning("Greska pri upisu narativa %s za article %d: %s", nid, article_id, e)
