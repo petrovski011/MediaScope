@@ -68,13 +68,15 @@ function ProposalsPanel() {
                   {p.topic_key || 'globalni'}
                 </span>
                 {p.occurrences > 1 && (
-                  <button
-                    onClick={() => window.open(`/articles/${p.article_id}`, '_blank')}
+                  <a
+                    href={`/articles/${p.article_id}`}
+                    target="_blank"
+                    rel="noreferrer"
                     className="text-[10px] hover:underline"
                     style={{ color: '#a5b4fc' }}
                     title="Vidi izvorni članak ovog predloga">
                     ×{p.occurrences}
-                  </button>
+                  </a>
                 )}
               </div>
               {p.description && <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{p.description}</p>}

@@ -795,13 +795,15 @@ function NarrativeProposalsPanel() {
                   {NARRATIVE_TYPE_LABELS[p.narrative_type] || p.narrative_type}
                 </span>
                 {p.occurrences > 1 && (
-                  <button
-                    onClick={() => window.open(`/articles?narrative_cluster_id=${p.id}`, '_blank')}
+                  <a
+                    href={`/articles?narrative_cluster_id=${p.id}`}
+                    target="_blank"
+                    rel="noreferrer"
                     className="text-[10px] hover:underline"
                     style={{ color: '#a5b4fc' }}
                     title="Vidi članke koji su obuhvaćeni ovim predlogom">
                     ×{p.occurrences}
-                  </button>
+                  </a>
                 )}
               </div>
               {p.description && <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{p.description}</p>}
