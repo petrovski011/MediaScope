@@ -140,7 +140,7 @@ function CoordinationPanel({ filterParams }) {
     queryFn: () => api.get(`/coordination/framing?${fmParams}`).then(r => r.data),
   })
 
-  const cpPairs = cpData?.pairs || []
+  const cpPairs = cpData?.groups || []
   const fmGroups = fmData?.groups || []
 
   const cpPages = Math.max(1, Math.ceil(cpPairs.length / CP_PER_PAGE))
@@ -166,7 +166,7 @@ function CoordinationPanel({ filterParams }) {
         </div>
         <div className="flex gap-1">
           {[
-            ['copypaste', `Copy-paste (${cpPairs.length})`],
+            ['copypaste', `Copy-paste (${cpPairs.length} gr.)`],
             ['framing', `Framing (${fmGroups.length})`],
           ].map(([val, label]) => (
             <button key={val} onClick={() => setTab(val)}
@@ -205,31 +205,30 @@ function CoordinationPanel({ filterParams }) {
             <div className="p-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>Učitavanje...</div>
           ) : cpPairs.length === 0 ? (
             <div className="p-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
-              Nema copy-paste parova (threshold ≥70%)
+              Nema copy-paste grupa (threshold ≥70%)
             </div>
           ) : (
             <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-              {cpSlice.map((pair, i) => (
+              {cpSlice.map((group, i) => (
                 <div key={i} className="px-4 py-3">
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-xs px-2 py-0.5 rounded-full"
                       style={{
-                        background: pair.similarity_score >= 0.95 ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)',
-                        color: pair.similarity_score >= 0.95 ? '#fca5a5' : '#fbbf24',
+                        background: group.max_similarity >= 0.95 ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)',
+                        color: group.max_similarity >= 0.95 ? '#fca5a5' : '#fbbf24',
                       }}>
-                      {Math.round(pair.similarity_score * 100)}% podudaranje
+                      {Math.round(group.max_similarity * 100)}% podudaranje
+                    </span>
+                    <span className="text-xs px-2 py-0.5 rounded"
+                      style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}>
+                      {group.size} {group.size === 1 ? 'medij' : group.size < 5 ? 'medija' : 'medija'}
                     </span>
                     <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                      {pair.article1.published_at?.slice(0, 10)}
+                      {group.articles[0]?.published_at?.slice(0, 10)}
                     </span>
-                    {pair.same_owner_group && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}>
-                        ista grupa
-                      </span>
-                    )}
                   </div>
                   <div className="space-y-1.5">
-                    {[pair.article1, pair.article2].map((a, j) => (
+                    {group.articles.map((a, j) => (
                       <div key={j} onClick={() => navigate(`/articles/${a.id}`)}
                         className="flex items-center gap-2 cursor-pointer hover:bg-white/[0.02] rounded p-1.5 -mx-1.5 transition-colors">
                         <span className="text-xs px-2 py-0.5 rounded shrink-0"

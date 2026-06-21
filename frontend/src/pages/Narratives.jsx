@@ -794,7 +794,15 @@ function NarrativeProposalsPanel() {
                 <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}>
                   {NARRATIVE_TYPE_LABELS[p.narrative_type] || p.narrative_type}
                 </span>
-                {p.occurrences > 1 && <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>×{p.occurrences}</span>}
+                {p.occurrences > 1 && (
+                  <button
+                    onClick={() => window.open(`/articles?narrative_cluster_id=${p.id}`, '_blank')}
+                    className="text-[10px] hover:underline"
+                    style={{ color: '#a5b4fc' }}
+                    title="Vidi članke koji su obuhvaćeni ovim predlogom">
+                    ×{p.occurrences}
+                  </button>
+                )}
               </div>
               {p.description && <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{p.description}</p>}
               {p.supporting_text && <p className="text-xs italic mt-1" style={{ color: 'var(--text-muted)' }}>"{p.supporting_text}"</p>}

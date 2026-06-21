@@ -68,7 +68,13 @@ function ProposalsPanel() {
                   {p.topic_key || 'globalni'}
                 </span>
                 {p.occurrences > 1 && (
-                  <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>×{p.occurrences}</span>
+                  <button
+                    onClick={() => window.open(`/articles/${p.article_id}`, '_blank')}
+                    className="text-[10px] hover:underline"
+                    style={{ color: '#a5b4fc' }}
+                    title="Vidi izvorni članak ovog predloga">
+                    ×{p.occurrences}
+                  </button>
                 )}
               </div>
               {p.description && <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{p.description}</p>}

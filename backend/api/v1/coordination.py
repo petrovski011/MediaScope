@@ -99,22 +99,47 @@ async def find_copy_paste_groups(
         """)
         rows = (await db.execute(fb_sql, params)).all()
 
-    pairs = [
-        {
-            "article1": {"id": r.a_id, "title": r.a_title, "source_id": r.a_src,
-                         "published_at": r.a_pub.isoformat() if r.a_pub else None},
-            "article2": {"id": r.b_id, "title": r.b_title, "source_id": r.b_src,
-                         "published_at": r.b_pub.isoformat() if r.b_pub else None},
-            "similarity_score": round(float(r.sim), 3),
-            "same_owner_group": r.same_owner,
-        }
-        for r in rows
-    ]
+    # Union-Find: grupiše sve međusobno slične članke u jednu grupu
+    parent: dict = {}
+    def _find(x):
+        if x not in parent: parent[x] = x
+        if parent[x] != x: parent[x] = _find(parent[x])
+        return parent[x]
+    def _union(x, y):
+        parent[_find(x)] = _find(y)
+
+    article_meta: dict = {}
+    edge_sim: dict = {}  # root -> max sim in group
+    for r in rows:
+        article_meta[r.a_id] = {"id": r.a_id, "title": r.a_title, "source_id": r.a_src,
+                                 "published_at": r.a_pub.isoformat() if r.a_pub else None}
+        article_meta[r.b_id] = {"id": r.b_id, "title": r.b_title, "source_id": r.b_src,
+                                 "published_at": r.b_pub.isoformat() if r.b_pub else None}
+        _union(r.a_id, r.b_id)
+
+    # After all unions, collect by root
+    groups_map: dict = {}
+    for aid in article_meta:
+        root = _find(aid)
+        groups_map.setdefault(root, []).append(article_meta[aid])
+
+    # Max similarity per group
+    for r in rows:
+        root = _find(r.a_id)
+        sim = float(r.sim)
+        if root not in edge_sim or sim > edge_sim[root]:
+            edge_sim[root] = sim
+
+    groups = sorted(
+        [{"articles": v, "size": len(v), "max_similarity": round(edge_sim.get(root, 0), 3)}
+         for root, v in groups_map.items()],
+        key=lambda x: (-x["size"], -x["max_similarity"])
+    )
 
     return {
-        "pairs": pairs,
+        "groups": groups,
         "threshold_used": thr,
-        "total": len(pairs),
+        "total": len(groups),
         "source": source,
         "methodology_note": METHODOLOGY_NOTE,
     }
@@ -379,15 +404,20 @@ async def network_actors(
     top_entities = list(dict.fromkeys(r.entity_name for r in rows))[:limit]
     top_sources = list(dict.fromkeys(r.source_id for r in rows))
 
-    matrix = {src: {ent: 0 for ent in top_entities} for src in top_sources}
+    lookup: dict = {}
     for r in rows:
         if r.entity_name in top_entities:
-            matrix[r.source_id][r.entity_name] = int(r.mentions)
+            lookup[(r.source_id, r.entity_name)] = int(r.mentions)
+
+    matrix_list = [
+        {"source_id": src, "entity_name": ent, "count": lookup.get((src, ent), 0)}
+        for src in top_sources for ent in top_entities
+    ]
 
     return {
         "sources": top_sources,
         "entities": top_entities,
-        "matrix": matrix,
+        "matrix": matrix_list,
         "methodology_note": METHODOLOGY_NOTE,
     }
 
@@ -421,15 +451,20 @@ async def network_topics(
     top_topics = list(dict.fromkeys(r.topic for r in rows))[:20]
     top_sources = list(dict.fromkeys(r.source_id for r in rows))
 
-    matrix = {src: {t: 0 for t in top_topics} for src in top_sources}
+    lookup: dict = {}
     for r in rows:
         if r.topic in top_topics:
-            matrix[r.source_id][r.topic] = int(r.article_count)
+            lookup[(r.source_id, r.topic)] = int(r.article_count)
+
+    matrix_list = [
+        {"source_id": src, "topic": t, "count": lookup.get((src, t), 0)}
+        for src in top_sources for t in top_topics
+    ]
 
     return {
         "sources": top_sources,
         "topics": top_topics,
-        "matrix": matrix,
+        "matrix": matrix_list,
         "methodology_note": METHODOLOGY_NOTE,
     }
 
@@ -465,14 +500,19 @@ async def network_narratives(
     top_narratives = list(dict.fromkeys(r.narrative_name for r in rows))[:15]
     top_sources = list(dict.fromkeys(r.source_id for r in rows))
 
-    matrix = {src: {nar: 0 for nar in top_narratives} for src in top_sources}
+    lookup: dict = {}
     for r in rows:
         if r.narrative_name in top_narratives:
-            matrix[r.source_id][r.narrative_name] = int(r.article_count)
+            lookup[(r.source_id, r.narrative_name)] = int(r.article_count)
+
+    matrix_list = [
+        {"source_id": src, "narrative_name": nar, "count": lookup.get((src, nar), 0)}
+        for src in top_sources for nar in top_narratives
+    ]
 
     return {
         "sources": top_sources,
         "narratives": top_narratives,
-        "matrix": matrix,
+        "matrix": matrix_list,
         "methodology_note": METHODOLOGY_NOTE,
     }

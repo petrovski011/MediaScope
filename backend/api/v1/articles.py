@@ -11,7 +11,7 @@ from models.sources import Source
 from models.analysis import (
     ArticleAnalysis, ArticleEntity, Entity,
     ArticleFraming, FramingType, Topic, ArticleNarrative, Narrative,
-    CalibrationFeedback,
+    CalibrationFeedback, NarrativeProposal,
 )
 from api.deps import get_current_user, require_role, PaginationParams, parse_date
 
@@ -45,6 +45,7 @@ async def list_articles(
     entity_sentiment: Optional[str] = Query(default=None),  # positive|negative|neutral
     narrative_id: Optional[int] = Query(default=None),
     framing_type_id: Optional[int] = Query(default=None),
+    narrative_cluster_id: Optional[int] = Query(default=None),
     political_score_min: Optional[float] = Query(default=None),
     political_score_max: Optional[float] = Query(default=None),
     has_analysis: Optional[bool] = Query(default=None),
@@ -97,6 +98,9 @@ async def list_articles(
         q = q.where(Article.id.in_(sub))
     if framing_type_id:
         sub = select(ArticleFraming.article_id).where(ArticleFraming.framing_type_id == framing_type_id)
+        q = q.where(Article.id.in_(sub))
+    if narrative_cluster_id:
+        sub = select(NarrativeProposal.article_id).where(NarrativeProposal.cluster_id == narrative_cluster_id)
         q = q.where(Article.id.in_(sub))
 
     count_q = select(func.count()).select_from(q.subquery())

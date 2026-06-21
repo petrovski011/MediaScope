@@ -51,8 +51,9 @@ export default function Articles() {
   const framingTypeId = searchParams.get('framing_type_id')
   const framingName = searchParams.get('framing_name')
   const urlSourceIds = searchParams.get('source_ids')
+  const narrativeClusterId = searchParams.get('narrative_cluster_id')
 
-  useEffect(() => { setPage(1) }, [dateFrom, dateTo, selectedSources.join(','), entityId, entitySentiment, framingTypeId, urlSourceIds])
+  useEffect(() => { setPage(1) }, [dateFrom, dateTo, selectedSources.join(','), entityId, entitySentiment, framingTypeId, urlSourceIds, narrativeClusterId])
 
   const params = new URLSearchParams({ page, per_page: 25, ...globalParams })
   if (search) params.set('search', search)
@@ -62,9 +63,10 @@ export default function Articles() {
   if (entitySentiment) params.set('entity_sentiment', entitySentiment)
   if (framingTypeId) params.set('framing_type_id', framingTypeId)
   if (urlSourceIds) params.set('source_ids', urlSourceIds)
+  if (narrativeClusterId) params.set('narrative_cluster_id', narrativeClusterId)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['articles', page, search, topic, hasAnalysis, dateFrom, dateTo, selectedSources.join(','), entityId, entitySentiment, framingTypeId, urlSourceIds],
+    queryKey: ['articles', page, search, topic, hasAnalysis, dateFrom, dateTo, selectedSources.join(','), entityId, entitySentiment, framingTypeId, urlSourceIds, narrativeClusterId],
     queryFn: () => api.get(`/articles?${params}`).then(r => r.data),
     keepPreviousData: true,
   })

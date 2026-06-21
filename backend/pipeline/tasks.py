@@ -369,7 +369,7 @@ def generate_embeddings(limit: int = 500):
 
 
 @celery.task(name="pipeline.tasks.consolidate_narrative_proposals")
-def consolidate_narrative_proposals(cosine_threshold: float = 0.3, batch_size: int = 1000):
+def consolidate_narrative_proposals(cosine_threshold: float = 0.15, batch_size: int = 1000):
     """Klasteruje narativne predloge semantički koristeći pgvector cosine distance.
 
     Za svaki neklastriran predlog:
