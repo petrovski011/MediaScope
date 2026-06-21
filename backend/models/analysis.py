@@ -2,6 +2,7 @@ from sqlalchemy import (
     Column, BigInteger, Integer, String, Boolean, Text,
     DateTime, Date, ARRAY, Float, ForeignKey, UniqueConstraint
 )
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 
@@ -133,6 +134,7 @@ class FramingTypeProposal(Base):
     article_id = Column(BigInteger, ForeignKey("articles.id"))
     status = Column(String(20), nullable=False, default="pending")  # pending, approved, rejected
     occurrences = Column(Integer, default=1)
+    article_ids = Column(postgresql.ARRAY(BigInteger), nullable=False, server_default="{}")
     reviewed_by = Column(Integer, ForeignKey("users.id"))
     reviewed_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -390,19 +390,20 @@ async def network_actors(
         df += " AND a.published_at <= :date_to"; params["date_to"] = parse_date(date_to)
 
     rows = (await db.execute(text(f"""
-        SELECT a.source_id, e.name AS entity_name,
+        SELECT a.source_id, e.id AS entity_id, e.name AS entity_name,
                SUM(ae.mention_count) AS mentions
         FROM article_entities ae
         JOIN articles a ON a.id = ae.article_id
         JOIN entities e ON e.id = ae.entity_id
         WHERE e.is_political_actor = TRUE {df}
-        GROUP BY a.source_id, e.name
+        GROUP BY a.source_id, e.id, e.name
         ORDER BY mentions DESC
         LIMIT :limit * 5
     """), params)).all()
 
     top_entities = list(dict.fromkeys(r.entity_name for r in rows))[:limit]
     top_sources = list(dict.fromkeys(r.source_id for r in rows))
+    entity_id_map: dict = {r.entity_name: r.entity_id for r in rows}
 
     lookup: dict = {}
     for r in rows:
@@ -410,7 +411,7 @@ async def network_actors(
             lookup[(r.source_id, r.entity_name)] = int(r.mentions)
 
     matrix_list = [
-        {"source_id": src, "entity_name": ent, "count": lookup.get((src, ent), 0)}
+        {"source_id": src, "entity_name": ent, "entity_id": entity_id_map.get(ent), "count": lookup.get((src, ent), 0)}
         for src in top_sources for ent in top_entities
     ]
 
@@ -486,19 +487,19 @@ async def network_narratives(
         df += " AND a.published_at <= :date_to"; params["date_to"] = parse_date(date_to)
 
     rows = (await db.execute(text(f"""
-        SELECT a.source_id, n.name AS narrative_name,
-               COUNT(*) AS article_count,
-               AVG(anm.confidence) AS avg_confidence
-        FROM article_narrative_matches anm
-        JOIN articles a ON a.id = anm.article_id
-        JOIN narratives n ON n.id = anm.narrative_id
-        WHERE n.is_validated = TRUE {df}
-        GROUP BY a.source_id, n.name
+        SELECT a.source_id, nc.representative_name AS narrative_name, nc.id AS cluster_id,
+               COUNT(*) AS article_count
+        FROM narrative_proposals np
+        JOIN articles a ON a.id = np.article_id
+        JOIN narrative_clusters nc ON nc.id = np.cluster_id
+        WHERE nc.proposal_count >= 2 {df}
+        GROUP BY a.source_id, nc.representative_name, nc.id
         ORDER BY article_count DESC
     """), params)).all()
 
     top_narratives = list(dict.fromkeys(r.narrative_name for r in rows))[:15]
     top_sources = list(dict.fromkeys(r.source_id for r in rows))
+    cluster_id_map: dict = {r.narrative_name: r.cluster_id for r in rows}
 
     lookup: dict = {}
     for r in rows:
@@ -506,7 +507,7 @@ async def network_narratives(
             lookup[(r.source_id, r.narrative_name)] = int(r.article_count)
 
     matrix_list = [
-        {"source_id": src, "narrative_name": nar, "count": lookup.get((src, nar), 0)}
+        {"source_id": src, "narrative_name": nar, "cluster_id": cluster_id_map.get(nar), "count": lookup.get((src, nar), 0)}
         for src in top_sources for nar in top_narratives
     ]
 

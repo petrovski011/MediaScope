@@ -181,6 +181,7 @@ async def list_proposals(
                 "supporting_text": p.supporting_text,
                 "occurrences": p.occurrences,
                 "article_id": p.article_id,
+                "article_ids": p.article_ids or [],
                 "created_at": p.created_at.isoformat() if p.created_at else None,
             }
             for p, tkey in rows.all()

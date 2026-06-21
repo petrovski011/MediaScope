@@ -794,17 +794,15 @@ function NarrativeProposalsPanel() {
                 <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}>
                   {NARRATIVE_TYPE_LABELS[p.narrative_type] || p.narrative_type}
                 </span>
-                {p.occurrences > 1 && (
-                  <a
-                    href={`/articles?narrative_cluster_id=${p.id}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-[10px] hover:underline"
-                    style={{ color: '#a5b4fc' }}
-                    title="Vidi članke koji su obuhvaćeni ovim predlogom">
-                    ×{p.occurrences}
-                  </a>
-                )}
+                <a
+                  href={`/articles?narrative_cluster_id=${p.id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[10px] px-1.5 py-0.5 rounded border hover:bg-white/[0.04] transition-colors"
+                  style={{ borderColor: 'var(--border)', color: '#a5b4fc' }}
+                  title="Otvori listu članaka obuhvaćenih ovim narativom">
+                  {p.occurrences} čl. →
+                </a>
               </div>
               {p.description && <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{p.description}</p>}
               {p.supporting_text && <p className="text-xs italic mt-1" style={{ color: 'var(--text-muted)' }}>"{p.supporting_text}"</p>}

@@ -319,7 +319,7 @@ function CoordinationPanel({ filterParams }) {
 
 // ─── Segment 2: SNA mreže ─────────────────────────────────────────────────────
 
-function MatrixTable({ data, rowKey, colKey, valKey, rowLabel, emptyMsg }) {
+function MatrixTable({ data, rowKey, colKey, valKey, rowLabel, emptyMsg, onCellClick }) {
   if (!Array.isArray(data) || data.length === 0) {
     return (
       <div className="px-4 py-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
@@ -331,8 +331,11 @@ function MatrixTable({ data, rowKey, colKey, valKey, rowLabel, emptyMsg }) {
   const rows = [...new Set(data.map(d => d[rowKey]))]
   const cols = [...new Set(data.map(d => d[colKey]))]
   const lookup = {}
+  const itemLookup = {}
   for (const d of data) {
-    lookup[`${d[rowKey]}||${d[colKey]}`] = d[valKey] || 0
+    const k = `${d[rowKey]}||${d[colKey]}`
+    lookup[k] = d[valKey] || 0
+    itemLookup[k] = d
   }
   const maxVal = Math.max(1, ...data.map(d => d[valKey] || 0))
 
@@ -354,15 +357,20 @@ function MatrixTable({ data, rowKey, colKey, valKey, rowLabel, emptyMsg }) {
             <tr key={row} className="border-t" style={{ borderColor: 'var(--border)' }}>
               <td className="px-3 py-1.5 font-mono font-medium whitespace-nowrap" style={{ color: 'var(--text-primary)' }}>{row}</td>
               {cols.map(col => {
-                const v = lookup[`${row}||${col}`] || 0
+                const k = `${row}||${col}`
+                const v = lookup[k] || 0
+                const item = itemLookup[k]
                 const intensity = v / maxVal
+                const clickable = onCellClick && v > 0
                 return (
                   <td key={col} className="px-2 py-1.5 text-center tabular-nums"
+                    onClick={() => clickable && onCellClick(item)}
                     style={{
                       background: v > 0 ? `rgba(99,102,241,${0.1 + intensity * 0.55})` : 'transparent',
                       color: v > 0 ? (intensity > 0.5 ? 'white' : 'var(--text-secondary)') : 'var(--text-muted)',
+                      cursor: clickable ? 'pointer' : 'default',
                     }}
-                    title={`${row} → ${col}: ${v}`}>
+                    title={v > 0 ? `${row} → ${col}: ${v} (klikni za članke)` : `${row} → ${col}: 0`}>
                     {v > 0 ? v : '·'}
                   </td>
                 )
@@ -376,9 +384,30 @@ function MatrixTable({ data, rowKey, colKey, valKey, rowLabel, emptyMsg }) {
 }
 
 const SNA_TABS = [
-  { key: 'actors',     label: 'Mediji ↔ Akteri',   icon: <Users size={12} />,     endpoint: '/coordination/network/actors',     rowKey: 'source_id', colKey: 'entity_name', valKey: 'count', desc: 'Broj pomena svakog aktera po mediju (top 10 aktera × svi aktivni izvori)', emptyMsg: 'Nema podataka o pominjanju aktera. Popunjava se kako AI analiza obrađuje članke.' },
-  { key: 'topics',     label: 'Mediji ↔ Teme',      icon: <Hash size={12} />,      endpoint: '/coordination/network/topics',     rowKey: 'source_id', colKey: 'topic',       valKey: 'count', desc: 'Broj članaka po temi po mediju (sve teme × svi aktivni izvori)',               emptyMsg: 'Nema podataka o pokrivenosti tema.' },
-  { key: 'narratives', label: 'Mediji ↔ Narativi',  icon: <TrendingUp size={12} />, endpoint: '/coordination/network/narratives', rowKey: 'source_id', colKey: 'narrative_name', valKey: 'count', desc: 'Broj članaka koji nose svaki narativ po mediju (validovani narativi × svi aktivni izvori)', emptyMsg: 'Nema validovanih narativa u izabranom periodu.' },
+  {
+    key: 'actors', label: 'Mediji ↔ Akteri', icon: <Users size={12} />,
+    endpoint: '/coordination/network/actors',
+    rowKey: 'source_id', colKey: 'entity_name', valKey: 'count',
+    desc: 'Broj pomena svakog aktera po mediju (top 10 aktera × svi aktivni izvori)',
+    emptyMsg: 'Nema podataka o pominjanju aktera. Popunjava se kako AI analiza obrađuje članke.',
+    buildUrl: d => `/articles?source_ids=${d.source_id}&entity_id=${d.entity_id}&entity_name=${encodeURIComponent(d.entity_name)}`,
+  },
+  {
+    key: 'topics', label: 'Mediji ↔ Teme', icon: <Hash size={12} />,
+    endpoint: '/coordination/network/topics',
+    rowKey: 'source_id', colKey: 'topic', valKey: 'count',
+    desc: 'Broj članaka po temi po mediju (sve teme × svi aktivni izvori)',
+    emptyMsg: 'Nema podataka o pokrivenosti tema.',
+    buildUrl: d => `/articles?source_ids=${d.source_id}&topic=${encodeURIComponent(d.topic)}`,
+  },
+  {
+    key: 'narratives', label: 'Mediji ↔ Narativi', icon: <TrendingUp size={12} />,
+    endpoint: '/coordination/network/narratives',
+    rowKey: 'source_id', colKey: 'narrative_name', valKey: 'count',
+    desc: 'Broj članaka koji nose svaki narativ po mediju (AI klasteri sa ≥2 pojavljivanja × svi aktivni izvori)',
+    emptyMsg: 'Nema narativnih klastera sa ≥2 pojavljivanja u izabranom periodu.',
+    buildUrl: d => `/articles?source_ids=${d.source_id}&narrative_cluster_id=${d.cluster_id}`,
+  },
 ]
 
 function SNANetworks({ filterParams }) {
@@ -442,6 +471,7 @@ function SNANetworks({ filterParams }) {
             colKey={tab.colKey}
             valKey={tab.valKey}
             emptyMsg={tab.emptyMsg}
+            onCellClick={tab.buildUrl ? (d) => window.open(tab.buildUrl(d), '_blank') : undefined}
           />
         )}
       </div>

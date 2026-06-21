@@ -388,19 +388,23 @@ async def _save_framing_proposals(
             updated = await pg.fetchval(
                 """
                 UPDATE framing_type_proposals
-                SET occurrences = occurrences + 1
+                SET occurrences = occurrences + 1,
+                    article_ids = CASE
+                        WHEN NOT ($3 = ANY(article_ids)) THEN array_append(article_ids, $3)
+                        ELSE article_ids
+                    END
                 WHERE name = $1 AND status = 'pending'
                   AND topic_id IS NOT DISTINCT FROM $2
                 RETURNING id
                 """,
-                name, topic_id,
+                name, topic_id, article_id,
             )
             if updated is None:
                 await pg.execute(
                     """
                     INSERT INTO framing_type_proposals
-                        (name, topic_id, description, supporting_text, article_id, status)
-                    VALUES ($1, $2, $3, $4, $5, 'pending')
+                        (name, topic_id, description, supporting_text, article_id, article_ids, status)
+                    VALUES ($1, $2, $3, $4, $5, ARRAY[$5], 'pending')
                     """,
                     name, topic_id, description, supporting_text, article_id,
                 )
