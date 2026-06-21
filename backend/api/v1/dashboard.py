@@ -389,6 +389,7 @@ async def summary_history(
 async def intraday_distribution(
     date_from: Optional[str] = Query(default=None),
     date_to: Optional[str] = Query(default=None),
+    source_ids: Optional[str] = Query(default=None),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -405,6 +406,9 @@ async def intraday_distribution(
         df += " AND a.published_at >= :date_from"; params["date_from"] = parse_date(date_from)
     if date_to:
         df += " AND a.published_at <= :date_to"; params["date_to"] = parse_date(date_to)
+    src_ids = _parse_source_ids(source_ids)
+    if src_ids:
+        df += " AND a.source_id = ANY(:source_ids)"; params["source_ids"] = src_ids
 
     # top 6 tema
     top = (await db.execute(text(f"""

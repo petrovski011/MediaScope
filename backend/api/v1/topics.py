@@ -22,6 +22,7 @@ router = APIRouter(prefix="/topics", tags=["topics"])
 async def list_topics(
     date_from: Optional[str] = Query(default=None),
     date_to: Optional[str] = Query(default=None),
+    source_ids: Optional[str] = Query(default=None),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -32,6 +33,9 @@ async def list_topics(
         df += " AND a.published_at >= :date_from"; params["date_from"] = parse_date(date_from)
     if date_to:
         df += " AND a.published_at <= :date_to"; params["date_to"] = parse_date(date_to)
+    src_ids = [s.strip() for s in source_ids.split(",") if s.strip()] if source_ids else None
+    if src_ids:
+        df += " AND a.source_id = ANY(:source_ids)"; params["source_ids"] = src_ids
 
     rows = (await db.execute(text(f"""
         SELECT aa.primary_topic AS topic,
@@ -45,9 +49,13 @@ async def list_topics(
         ORDER BY article_count DESC
     """), params)).all()
 
-    total_sources = (await db.execute(text(
-        "SELECT COUNT(*) FROM sources WHERE is_active = TRUE"
-    ))).scalar() or 0
+    # Kad je aktivan source filter, silence se računa u odnosu na izabrane izvore.
+    if src_ids:
+        total_sources = len(src_ids)
+    else:
+        total_sources = (await db.execute(text(
+            "SELECT COUNT(*) FROM sources WHERE is_active = TRUE"
+        ))).scalar() or 0
 
     return {
         "topics": [

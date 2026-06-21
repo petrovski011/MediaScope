@@ -16,18 +16,24 @@ NOTE = ("Politička analiza koristi NER iz medijskog sadržaja. Korelacija ne do
         "interpretacija ostaje na istraživaču.")
 
 
+def _parse_source_ids(source_ids: Optional[str]):
+    if not source_ids:
+        return None
+    return [s.strip() for s in source_ids.split(",") if s.strip()]
+
+
 @router.get("/actors")
 async def political_actors(
     date_from: Optional[str] = Query(default=None),
     date_to: Optional[str] = Query(default=None),
+    source_ids: Optional[str] = Query(default=None),
     limit: int = Query(default=40, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    """Politicki akteri: pominjanja + prosecan politicki skor clanaka koji ih pominju,
-    podeljeno po alignment-u izvora (pro-vlada / opozicija / neutralno).
-
-    Alignment izvora se izvodi iz proseka political_score po izvoru.
+    """Politicki akteri: pominjanja + sentiment u kom se akter pominje, filtrirano
+    po datumu i izabranim medijima. Sentiment je per-akter (article_entities.sentiment),
+    ne sentiment celog teksta.
     """
     params = {"limit": limit}
     df = ""
@@ -35,6 +41,9 @@ async def political_actors(
         df += " AND a.published_at >= :date_from"; params["date_from"] = parse_date(date_from)
     if date_to:
         df += " AND a.published_at <= :date_to"; params["date_to"] = parse_date(date_to)
+    src_ids = _parse_source_ids(source_ids)
+    if src_ids:
+        df += " AND a.source_id = ANY(:source_ids)"; params["source_ids"] = src_ids
 
     rows = (await db.execute(text(f"""
         WITH src_align AS (
@@ -79,6 +88,7 @@ async def political_actors(
 async def propaganda_stats(
     date_from: Optional[str] = Query(default=None),
     date_to: Optional[str] = Query(default=None),
+    source_ids: Optional[str] = Query(default=None),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -90,6 +100,9 @@ async def propaganda_stats(
         df += " AND a.published_at >= :date_from"; params["date_from"] = parse_date(date_from)
     if date_to:
         df += " AND a.published_at <= :date_to"; params["date_to"] = parse_date(date_to)
+    src_ids = _parse_source_ids(source_ids)
+    if src_ids:
+        df += " AND a.source_id = ANY(:source_ids)"; params["source_ids"] = src_ids
 
     rows = (await db.execute(text(f"""
         SELECT a.source_id, aa.propaganda_techniques, COUNT(*) AS article_count
