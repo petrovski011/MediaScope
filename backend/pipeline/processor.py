@@ -360,13 +360,19 @@ async def _save_narrative_proposals(
             logger.warning("Greska pri upisu narativ predloga %s: %s", name, e)
 
 
+_FRAMING_COSINE_THRESHOLD = 0.22  # max cosine distance da bi se framing smatrao istim
+
+
 async def _save_framing_proposals(
     pg: asyncpg.Connection, article_id: int, primary_topic: Optional[str], proposals: list[dict]
 ) -> None:
     """Hvata AI predloge novih framing okvira u staging (framing_type_proposals).
 
-    Ako vec postoji pending predlog istog imena/teme — inkrementira occurrences.
+    Ako vec postoji pending predlog semanticki slicnog naziva/opisa (cosine < threshold)
+    — inkrementira occurrences i dodaje article_id. Inace kreira novi predlog sa embeddingom.
     """
+    from pipeline.embeddings import embed_texts
+
     topic_id = await _topic_id_for_key(pg, primary_topic)
 
     for p in (proposals or [])[:3]:
@@ -384,29 +390,78 @@ async def _save_framing_proposals(
         if exists:
             continue
 
+        # Generisi embedding za ovaj predlog
         try:
-            updated = await pg.fetchval(
-                """
-                UPDATE framing_type_proposals
-                SET occurrences = occurrences + 1,
-                    article_ids = CASE
-                        WHEN NOT ($3 = ANY(article_ids)) THEN array_append(article_ids, $3)
-                        ELSE article_ids
-                    END
-                WHERE name = $1 AND status = 'pending'
-                  AND topic_id IS NOT DISTINCT FROM $2
-                RETURNING id
-                """,
-                name, topic_id, article_id,
-            )
-            if updated is None:
-                await pg.execute(
+            embed_text = f"{name}. {description or ''}".strip()
+            vecs = embed_texts([embed_text], is_query=False)
+            vec_str = "[" + ",".join(f"{v:.6f}" for v in vecs[0]) + "]" if vecs else None
+        except Exception as e:
+            logger.warning("Embedding za framing predlog %s nije uspeo: %s", name, e)
+            vec_str = None
+
+        try:
+            updated = None
+
+            # 1. Pokusaj embedding similarity match (ako imamo embedding)
+            if vec_str:
+                updated = await pg.fetchval(
                     """
-                    INSERT INTO framing_type_proposals
-                        (name, topic_id, description, supporting_text, article_id, article_ids, status)
-                    VALUES ($1, $2, $3, $4, $5, ARRAY[$5], 'pending')
+                    UPDATE framing_type_proposals
+                    SET occurrences = occurrences + 1,
+                        article_ids = CASE
+                            WHEN NOT ($3 = ANY(article_ids)) THEN array_append(article_ids, $3)
+                            ELSE article_ids
+                        END
+                    WHERE id = (
+                        SELECT id FROM framing_type_proposals
+                        WHERE status = 'pending'
+                          AND topic_id IS NOT DISTINCT FROM $1
+                          AND embedding IS NOT NULL
+                          AND embedding <=> $2::vector < $4
+                        ORDER BY embedding <=> $2::vector
+                        LIMIT 1
+                    )
+                    RETURNING id
                     """,
-                    name, topic_id, description, supporting_text, article_id,
+                    topic_id, vec_str, article_id, _FRAMING_COSINE_THRESHOLD,
                 )
+
+            # 2. Fallback: exact name match (ako nema embeddinga ili nije nasao po embeddingu)
+            if updated is None:
+                updated = await pg.fetchval(
+                    """
+                    UPDATE framing_type_proposals
+                    SET occurrences = occurrences + 1,
+                        article_ids = CASE
+                            WHEN NOT ($3 = ANY(article_ids)) THEN array_append(article_ids, $3)
+                            ELSE article_ids
+                        END
+                    WHERE name = $1 AND status = 'pending'
+                      AND topic_id IS NOT DISTINCT FROM $2
+                    RETURNING id
+                    """,
+                    name, topic_id, article_id,
+                )
+
+            # 3. Nista nije nasao — novi predlog
+            if updated is None:
+                if vec_str:
+                    await pg.execute(
+                        """
+                        INSERT INTO framing_type_proposals
+                            (name, topic_id, description, supporting_text, article_id, article_ids, status, embedding)
+                        VALUES ($1, $2, $3, $4, $5, ARRAY[$5], 'pending', $6::vector)
+                        """,
+                        name, topic_id, description, supporting_text, article_id, vec_str,
+                    )
+                else:
+                    await pg.execute(
+                        """
+                        INSERT INTO framing_type_proposals
+                            (name, topic_id, description, supporting_text, article_id, article_ids, status)
+                        VALUES ($1, $2, $3, $4, $5, ARRAY[$5], 'pending')
+                        """,
+                        name, topic_id, description, supporting_text, article_id,
+                    )
         except Exception as e:
             logger.warning("Greska pri upisu framing predloga %s: %s", name, e)

@@ -357,15 +357,49 @@ def generate_embeddings(limit: int = 500):
         finally:
             await pg.close()
 
+    async def _fetch_framing_proposals():
+        pg = await asyncpg.connect(PG_DSN)
+        try:
+            return [dict(r) for r in await pg.fetch(
+                """
+                SELECT id, name, description FROM framing_type_proposals
+                WHERE status = 'pending' AND embedding IS NULL
+                ORDER BY id DESC LIMIT 100
+                """
+            )]
+        finally:
+            await pg.close()
+
+    async def _save_framing_embeddings(fps, vectors):
+        pg = await asyncpg.connect(PG_DSN)
+        try:
+            for fp, vec in zip(fps, vectors):
+                await pg.execute(
+                    "UPDATE framing_type_proposals SET embedding = $1::vector WHERE id = $2",
+                    "[" + ",".join(f"{v:.6f}" for v in vec) + "]", fp["id"],
+                )
+        finally:
+            await pg.close()
+
     items = _run_async(_fetch(limit))
     if not items:
-        return {"status": "done", "embedded": 0}
+        articles_embedded = 0
+    else:
+        texts = [build_embed_input(it["title"], it["text_content"]) for it in items]
+        vectors = embed_texts(texts, is_query=False)
+        _run_async(_save(items, vectors))
+        articles_embedded = len(items)
+        logger.info("generate_embeddings: %d clanaka embedovano", articles_embedded)
 
-    texts = [build_embed_input(it["title"], it["text_content"]) for it in items]
-    vectors = embed_texts(texts, is_query=False)
-    _run_async(_save(items, vectors))
-    logger.info("generate_embeddings: %d clanaka embedovano", len(items))
-    return {"status": "ok", "embedded": len(items)}
+    # Backfill embeddinga za pending framing predloge bez embeddinga
+    fp_items = _run_async(_fetch_framing_proposals())
+    if fp_items:
+        fp_texts = [f"{fp['name']}. {fp['description'] or ''}".strip() for fp in fp_items]
+        fp_vectors = embed_texts(fp_texts, is_query=False)
+        _run_async(_save_framing_embeddings(fp_items, fp_vectors))
+        logger.info("generate_embeddings: %d framing predloga embedovano", len(fp_items))
+
+    return {"status": "ok", "embedded": articles_embedded, "framing_proposals_embedded": len(fp_items)}
 
 
 @celery.task(name="pipeline.tasks.consolidate_narrative_proposals")
