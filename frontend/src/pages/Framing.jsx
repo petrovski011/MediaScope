@@ -67,19 +67,32 @@ function ProposalsPanel() {
                   style={{ background: p.topic_key ? 'var(--accent)' : 'var(--bg-elevated)', color: p.topic_key ? 'white' : 'var(--text-muted)' }}>
                   {p.topic_key || 'globalni'}
                 </span>
-                <a
-                  href={p.article_ids && p.article_ids.length > 1
-                    ? `/articles?framing_proposal_id=${p.id}`
-                    : `/articles/${p.article_id}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-[10px] px-1.5 py-0.5 rounded border hover:bg-white/[0.04] transition-colors"
-                  style={{ borderColor: 'var(--border)', color: '#a5b4fc' }}
-                  title={p.article_ids && p.article_ids.length > 1
-                    ? `Vidi ${p.article_ids.length} članaka sa ovim frejmingom`
-                    : 'Otvori izvorni članak ovog predloga'}>
-                  {p.article_ids && p.article_ids.length > 1 ? `${p.article_ids.length} čl. →` : 'članak →'}
-                </a>
+                {p.article_ids && p.article_ids.length > 1 ? (
+                  <a
+                    href={`/articles?framing_proposal_id=${p.id}`}
+                    target="_blank" rel="noreferrer"
+                    className="text-[10px] px-1.5 py-0.5 rounded border hover:bg-white/[0.04] transition-colors"
+                    style={{ borderColor: 'var(--border)', color: '#a5b4fc' }}
+                    title={`Vidi ${p.article_ids.length} članaka sa ovim frejmingom`}>
+                    ×{p.article_ids.length} čl. →
+                  </a>
+                ) : (
+                  <>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded"
+                      style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}
+                      title={`${p.occurrences} pojavljivanja — lista članaka nije dostupna za starije predloge`}>
+                      ×{p.occurrences}
+                    </span>
+                    <a
+                      href={`/articles/${p.article_id}`}
+                      target="_blank" rel="noreferrer"
+                      className="text-[10px] px-1.5 py-0.5 rounded border hover:bg-white/[0.04] transition-colors"
+                      style={{ borderColor: 'var(--border)', color: '#a5b4fc' }}
+                      title="Otvori izvorni članak koji je triggerovao ovaj predlog">
+                      izvorni čl. →
+                    </a>
+                  </>
+                )}
               </div>
               {p.description && <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>{p.description}</p>}
               {p.supporting_text && <p className="text-xs italic mt-1" style={{ color: 'var(--text-muted)' }}>"{p.supporting_text}"</p>}

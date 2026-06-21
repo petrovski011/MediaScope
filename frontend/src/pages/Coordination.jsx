@@ -319,7 +319,7 @@ function CoordinationPanel({ filterParams }) {
 
 // ─── Segment 2: SNA mreže ─────────────────────────────────────────────────────
 
-function MatrixTable({ data, rowKey, colKey, valKey, rowLabel, emptyMsg, onCellClick }) {
+function MatrixTable({ data, rowKey, colKey, valKey, rowLabel, emptyMsg, getCellUrl }) {
   if (!Array.isArray(data) || data.length === 0) {
     return (
       <div className="px-4 py-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
@@ -361,17 +361,24 @@ function MatrixTable({ data, rowKey, colKey, valKey, rowLabel, emptyMsg, onCellC
                 const v = lookup[k] || 0
                 const item = itemLookup[k]
                 const intensity = v / maxVal
-                const clickable = onCellClick && v > 0
+                const url = getCellUrl && v > 0 ? getCellUrl(item) : null
                 return (
                   <td key={col} className="px-2 py-1.5 text-center tabular-nums"
-                    onClick={() => clickable && onCellClick(item)}
                     style={{
                       background: v > 0 ? `rgba(99,102,241,${0.1 + intensity * 0.55})` : 'transparent',
                       color: v > 0 ? (intensity > 0.5 ? 'white' : 'var(--text-secondary)') : 'var(--text-muted)',
-                      cursor: clickable ? 'pointer' : 'default',
-                    }}
-                    title={v > 0 ? `${row} → ${col}: ${v} (klikni za članke)` : `${row} → ${col}: 0`}>
-                    {v > 0 ? v : '·'}
+                      padding: 0,
+                    }}>
+                    {url ? (
+                      <a href={url} target="_blank" rel="noreferrer"
+                        className="block w-full h-full px-2 py-1.5 hover:brightness-125"
+                        style={{ color: 'inherit', textDecoration: 'none' }}
+                        title={`${row} → ${col}: ${v} (klikni za članke)`}>
+                        {v}
+                      </a>
+                    ) : (
+                      <span className="block px-2 py-1.5">{v > 0 ? v : '·'}</span>
+                    )}
                   </td>
                 )
               })}
@@ -471,7 +478,7 @@ function SNANetworks({ filterParams }) {
             colKey={tab.colKey}
             valKey={tab.valKey}
             emptyMsg={tab.emptyMsg}
-            onCellClick={tab.buildUrl ? (d) => window.open(tab.buildUrl(d), '_blank') : undefined}
+            getCellUrl={tab.buildUrl || null}
           />
         )}
       </div>
