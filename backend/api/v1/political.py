@@ -1,4 +1,4 @@
-"""Politicka analiza — narativni akteri + meta-framing (narod vs elite).
+"""Politicka analiza — narativni akteri + propaganda.
 
 Metodologija: politicki akteri se identifikuju kroz NER iz medijskog sadrzaja.
 Korelacija ne dokazuje da je medij svesni instrument — interpretacija na istrazivacu.
