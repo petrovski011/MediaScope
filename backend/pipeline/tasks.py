@@ -413,52 +413,32 @@ def consolidate_narrative_proposals(cosine_threshold: float = 0.15, batch_size: 
         for (prop_id, name, ntype, desc), vec in zip(proposals, vectors):
             vec_str = "[" + ",".join(f"{v:.6f}" for v in vec) + "]"
 
-            # Find nearest pending cluster
+            # Find nearest pending cluster of the same narrative_type.
+            # Centroid is kept FIXED (first-proposal anchor) to prevent drift.
             cur.execute("""
-                SELECT id, centroid_embedding, proposal_count
+                SELECT id, proposal_count
                 FROM narrative_clusters
                 WHERE status = 'pending'
+                  AND narrative_type = %s
+                  AND centroid_embedding <=> %s::vector < %s
                 ORDER BY centroid_embedding <=> %s::vector
                 LIMIT 1
-            """, (vec_str,))
+            """, (ntype or "thematic", vec_str, cosine_threshold, vec_str))
             row = cur.fetchone()
 
             if row:
-                cluster_id, centroid, count = row
-                # Check actual distance
-                cur.execute("SELECT %s::vector <=> %s::vector", (vec_str, centroid))
-                dist = cur.fetchone()[0]
-
-                if dist < cosine_threshold:
-                    # Update centroid: running average, then re-normalize
-                    # new_centroid = (centroid * count + new_vec) / (count + 1)
-                    # We do this in Python for precision
-                    # centroid comes back as a list from psycopg2 with pgvector
-                    if isinstance(centroid, str):
-                        c_vals = [float(x) for x in centroid.strip("[]").split(",")]
-                    else:
-                        c_vals = list(centroid)
-
-                    new_count = count + 1
-                    new_centroid = [(c_vals[i] * count + vec[i]) / new_count for i in range(len(vec))]
-                    # Re-normalize
-                    norm = sum(x*x for x in new_centroid) ** 0.5
-                    if norm > 0:
-                        new_centroid = [x / norm for x in new_centroid]
-                    new_centroid_str = "[" + ",".join(f"{v:.6f}" for v in new_centroid) + "]"
-
-                    cur.execute("""
-                        UPDATE narrative_clusters
-                        SET proposal_count = %s,
-                            centroid_embedding = %s::vector,
-                            last_seen = now()
-                        WHERE id = %s
-                    """, (new_count, new_centroid_str, cluster_id))
-                    cur.execute("UPDATE narrative_proposals SET cluster_id = %s, embedding = %s::vector WHERE id = %s",
-                                (cluster_id, vec_str, prop_id))
-                    clustered += 1
-                    conn.commit()
-                    continue
+                cluster_id, count = row
+                # Centroid NOT updated — stays anchored to the first proposal
+                cur.execute("""
+                    UPDATE narrative_clusters
+                    SET proposal_count = %s, last_seen = now()
+                    WHERE id = %s
+                """, (count + 1, cluster_id))
+                cur.execute("UPDATE narrative_proposals SET cluster_id = %s, embedding = %s::vector WHERE id = %s",
+                            (cluster_id, vec_str, prop_id))
+                clustered += 1
+                conn.commit()
+                continue
 
             # No suitable cluster — create new one
             cur.execute("""
