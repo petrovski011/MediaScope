@@ -1,0 +1,80 @@
+version: '3.9'
+
+# Lokalni dev stack — postgres + redis + backend sa izloženim portovima.
+# Frontend: pokreni zasebno sa `npm run dev` u /frontend direktorijumu.
+# Worker/beat/scraper su isključeni (ne trebaš AI pipeline za UI development).
+#
+# Pokretanje:
+#   docker compose -f docker-compose.dev.yml up -d
+# Zaustavljanje:
+#   docker compose -f docker-compose.dev.yml down
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    platform: linux/amd64
+    container_name: mediascope_db_dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mediascope
+      POSTGRES_USER: mediascope
+      POSTGRES_PASSWORD: devpassword
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+      - ./docs/MediaScope_DataModel_v1.sql:/docker-entrypoint-initdb.d/01_schema.sql
+    networks:
+      - dev_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mediascope -d mediascope"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: mediascope_redis_dev
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    networks:
+      - dev_internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: mediascope_backend_dev
+    restart: unless-stopped
+    env_file:
+      - .env.dev
+    environment:
+      DATABASE_URL: postgresql+asyncpg://mediascope:devpassword@postgres:5432/mediascope
+      REDIS_URL: redis://redis:6379
+      ENVIRONMENT: development
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./data:/data
+      - ./backend:/app          # live mount: host izmene → --reload odmah vidi
+    networks:
+      - dev_internal
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn main:app --host 0.0.0.0 --port 8002 --reload
+
+networks:
+  dev_internal:
+    driver: bridge
+
+volumes:
+  postgres_data_dev:

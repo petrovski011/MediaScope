@@ -19,6 +19,7 @@ celerybeat-schedule
 .env
 .env.local
 .env.*.local
+.env.dev
 
 # Node
 frontend/node_modules/
