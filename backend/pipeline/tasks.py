@@ -287,7 +287,7 @@ def check_and_process_batch(self):
     results = list(iter_batch_results(batch_id))
 
     try:
-        metrics = _run_async(process_batch_results(results))
+        metrics = _run_async(process_batch_results(results, batch_id=batch_id))
         batch_status = "completed"
         batch_error = None
     except Exception as exc:

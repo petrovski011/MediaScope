@@ -17,19 +17,36 @@ PIPELINE_VERSION = "1.0"
 PG_DSN = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
 
 
-async def process_batch_results(batch_results: list[tuple]) -> dict:
+async def process_batch_results(batch_results: list[tuple], batch_id: Optional[str] = None) -> dict:
     """
     batch_results: lista (article_id, parsed_json, error) iz iter_batch_results()
     Vraca metriku: koliko upisano, gresaka, tokena.
     """
     pg = await asyncpg.connect(PG_DSN)
     try:
-        return await _process(pg, batch_results)
+        return await _process(pg, batch_results, batch_id=batch_id)
     finally:
         await pg.close()
 
 
-async def _process(pg: asyncpg.Connection, batch_results: list[tuple]) -> dict:
+async def _log_error(pg: asyncpg.Connection, article_id: Optional[int], batch_id: Optional[str],
+                     stage: str, exc) -> None:
+    try:
+        if isinstance(exc, str):
+            err_type, err_msg = "BatchError", exc[:2000]
+        else:
+            err_type = type(exc).__name__
+            err_msg = str(exc)[:2000]
+        await pg.execute(
+            "INSERT INTO processing_errors (article_id, batch_id, stage, error_type, error_message) VALUES ($1, $2, $3, $4, $5)",
+            article_id, batch_id, stage, err_type, err_msg,
+        )
+    except Exception:
+        pass  # ne smeš ovde pucati — samo logger
+
+
+async def _process(pg: asyncpg.Connection, batch_results: list[tuple],
+                   batch_id: Optional[str] = None) -> dict:
     metrics = {
         "saved": 0,
         "errors": 0,
@@ -40,6 +57,7 @@ async def _process(pg: asyncpg.Connection, batch_results: list[tuple]) -> dict:
     for article_id, parsed, error in batch_results:
         if error or not parsed:
             logger.warning("Preskacemo article %d: %s", article_id, error)
+            await _log_error(pg, article_id, batch_id, "batch", error or "no_parsed_data")
             metrics["errors"] += 1
             continue
 
@@ -47,17 +65,18 @@ async def _process(pg: asyncpg.Connection, batch_results: list[tuple]) -> dict:
             await _save_analysis(pg, article_id, parsed)
             metrics["saved"] += 1
 
-            entity_stats = await _save_entities(pg, article_id, parsed.get("entities", []))
+            entity_stats = await _save_entities(pg, article_id, parsed.get("entities", []), batch_id=batch_id)
             metrics["entities_created"] += entity_stats["created"]
             metrics["entities_linked"] += entity_stats["linked"]
 
-            await _save_framings(pg, article_id, parsed.get("primary_topic"), parsed.get("framings", []))
-            await _save_framing_proposals(pg, article_id, parsed.get("primary_topic"), parsed.get("new_framing_proposals", []))
-            await _save_narratives(pg, article_id, parsed.get("narratives", []))
-            await _save_narrative_proposals(pg, article_id, parsed.get("new_narrative_proposals", []))
+            await _save_framings(pg, article_id, parsed.get("primary_topic"), parsed.get("framings", []), batch_id=batch_id)
+            await _save_framing_proposals(pg, article_id, parsed.get("primary_topic"), parsed.get("new_framing_proposals", []), batch_id=batch_id)
+            await _save_narratives(pg, article_id, parsed.get("narratives", []), batch_id=batch_id)
+            await _save_narrative_proposals(pg, article_id, parsed.get("new_narrative_proposals", []), batch_id=batch_id)
 
         except Exception as e:
             logger.exception("Greska pri upisu article %d: %s", article_id, e)
+            await _log_error(pg, article_id, batch_id, "processing", e)
             metrics["errors"] += 1
 
     logger.info("Batch upis zavrsen: %s", metrics)
@@ -151,7 +170,8 @@ async def _save_analysis(pg: asyncpg.Connection, article_id: int, data: dict) ->
 
 
 async def _save_entities(
-    pg: asyncpg.Connection, article_id: int, entities: list[dict]
+    pg: asyncpg.Connection, article_id: int, entities: list[dict],
+    batch_id: Optional[str] = None,
 ) -> dict:
     """
     Upsert entiteta u `entities` tabelu (deduplicira po name+type),
@@ -222,6 +242,7 @@ async def _save_entities(
             linked += 1
         except Exception as e:
             logger.warning("Greska pri linkovanju entiteta %s: %s", name, e)
+            await _log_error(pg, article_id, batch_id, "entities", e)
 
     return {"created": created, "linked": linked}
 
@@ -245,7 +266,8 @@ async def _topic_id_for_key(pg: asyncpg.Connection, topic_key: Optional[str]) ->
 
 
 async def _save_framings(
-    pg: asyncpg.Connection, article_id: int, primary_topic: Optional[str], framings: list[dict]
+    pg: asyncpg.Connection, article_id: int, primary_topic: Optional[str], framings: list[dict],
+    batch_id: Optional[str] = None,
 ) -> None:
     """Upisuje framinge resolucijom po (name, topic_id).
 
@@ -290,10 +312,12 @@ async def _save_framings(
             )
         except Exception as e:
             logger.warning("Greska pri upisu framinga %s za article %d: %s", framing_type, article_id, e)
+            await _log_error(pg, article_id, batch_id, "framings", e)
 
 
 async def _save_narratives(
-    pg: asyncpg.Connection, article_id: int, narratives: list[dict]
+    pg: asyncpg.Connection, article_id: int, narratives: list[dict],
+    batch_id: Optional[str] = None,
 ) -> None:
     """Upisuje AI mapiranje clanka na VALIDIRANE narative (po narrative_id iz kataloga)."""
     for n in (narratives or [])[: settings.MAX_NARRATIVES_PER_ARTICLE]:
@@ -328,10 +352,12 @@ async def _save_narratives(
             )
         except Exception as e:
             logger.warning("Greska pri upisu narativa %s za article %d: %s", nid, article_id, e)
+            await _log_error(pg, article_id, batch_id, "narratives", e)
 
 
 async def _save_narrative_proposals(
-    pg: asyncpg.Connection, article_id: int, proposals: list[dict]
+    pg: asyncpg.Connection, article_id: int, proposals: list[dict],
+    batch_id: Optional[str] = None,
 ) -> None:
     """Hvata AI predloge novih narativa — svaki se čuva zasebno.
     Klasterovanje po semantičkoj sličnosti radi consolidate_narrative_proposals task.
@@ -363,13 +389,15 @@ async def _save_narrative_proposals(
             )
         except Exception as e:
             logger.warning("Greska pri upisu narativ predloga %s: %s", name, e)
+            await _log_error(pg, article_id, batch_id, "narrative_proposals", e)
 
 
 _FRAMING_COSINE_THRESHOLD = 0.22  # max cosine distance da bi se framing smatrao istim
 
 
 async def _save_framing_proposals(
-    pg: asyncpg.Connection, article_id: int, primary_topic: Optional[str], proposals: list[dict]
+    pg: asyncpg.Connection, article_id: int, primary_topic: Optional[str], proposals: list[dict],
+    batch_id: Optional[str] = None,
 ) -> None:
     """Hvata AI predloge novih framing okvira u staging (framing_type_proposals).
 
@@ -470,3 +498,4 @@ async def _save_framing_proposals(
                     )
         except Exception as e:
             logger.warning("Greska pri upisu framing predloga %s: %s", name, e)
+            await _log_error(pg, article_id, batch_id, "framing_proposals", e)

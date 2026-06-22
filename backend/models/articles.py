@@ -92,3 +92,15 @@ class PipelineBatch(Base):
     submitted_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     finished_at = Column(DateTime(timezone=True))
     error_message = Column(Text)
+
+
+class ProcessingError(Base):
+    __tablename__ = "processing_errors"
+
+    id = Column(BigInteger, primary_key=True)
+    article_id = Column(BigInteger, nullable=True)
+    batch_id = Column(Text, nullable=True)
+    stage = Column(String(50), nullable=True)
+    error_type = Column(String(100), nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())

@@ -402,6 +402,7 @@ export default function Admin() {
   const [batchesPage, setBatchesPage] = useState(1)
   const [expandedBatch, setExpandedBatch] = useState(null)
   const [expandedRun, setExpandedRun] = useState(null)
+  const [errorsModal, setErrorsModal] = useState(null) // { batchDbId, batchId }
 
   const { data: users = [], isLoading } = useQuery({
     queryKey: ['admin-users'],
@@ -425,6 +426,12 @@ export default function Admin() {
     queryKey: ['admin-scraper-runs', runsPage, runsSource],
     queryFn: () => api.get(`/admin/scraper/runs?${runsParams}`).then(r => r.data),
     keepPreviousData: true,
+  })
+
+  const { data: errorsData, isLoading: errorsLoading } = useQuery({
+    queryKey: ['admin-batch-errors', errorsModal?.batchDbId],
+    queryFn: () => api.get(`/admin/pipeline/batches/${errorsModal.batchDbId}/errors`).then(r => r.data),
+    enabled: !!errorsModal,
   })
   const runs = runsData?.items || []
   const runsTotal = runsData?.total || 0
@@ -569,8 +576,17 @@ export default function Admin() {
                           </td>
                           <td className="px-4 py-2.5 text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>{b.article_count ?? '—'}</td>
                           <td className="px-4 py-2.5 text-xs tabular-nums text-green-400">{b.articles_saved ?? '—'}</td>
-                          <td className="px-4 py-2.5 text-xs tabular-nums" style={{ color: b.articles_failed > 0 ? '#f87171' : 'var(--text-muted)' }}>
-                            {b.articles_failed ?? '—'}
+                          <td className="px-4 py-2.5 text-xs tabular-nums">
+                            {b.articles_failed > 0 ? (
+                              <button
+                                onClick={e => { e.stopPropagation(); setErrorsModal({ batchDbId: b.id, batchId: b.batch_id }) }}
+                                className="underline decoration-dotted hover:opacity-80 tabular-nums"
+                                style={{ color: '#f87171' }}
+                                title="Klikni da vidiš detalje grešaka"
+                              >{b.articles_failed}</button>
+                            ) : (
+                              <span style={{ color: 'var(--text-muted)' }}>{b.articles_failed ?? '—'}</span>
+                            )}
                           </td>
                           <td className="px-4 py-2.5 text-xs" style={{ color: 'var(--text-muted)' }}>
                             {b.submitted_at ? new Date(b.submitted_at).toLocaleString('sr-Latn', { hour12: false }) : '—'}
@@ -710,6 +726,67 @@ export default function Admin() {
         <ConfirmModal user={deleteUser}
           onClose={() => setDeleteUser(null)}
           onConfirm={() => deleteMutation.mutate(deleteUser.id)} />
+      )}
+
+      {/* Modal: greške batcha */}
+      {errorsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.7)' }}
+          onClick={() => setErrorsModal(null)}>
+          <div className="rounded-xl border w-full max-w-3xl max-h-[80vh] flex flex-col"
+            style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-3.5 border-b" style={{ borderColor: 'var(--border)' }}>
+              <div>
+                <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Greške u batchu</h3>
+                <p className="text-xs mt-0.5 font-mono" style={{ color: 'var(--text-muted)' }}>{errorsModal.batchId}</p>
+              </div>
+              <button onClick={() => setErrorsModal(null)} className="p-1 rounded hover:bg-white/[0.06]">
+                <X size={16} style={{ color: 'var(--text-muted)' }} />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              {errorsLoading ? (
+                <p className="px-5 py-8 text-sm text-center" style={{ color: 'var(--text-muted)' }}>Učitavanje…</p>
+              ) : !errorsData?.errors?.length ? (
+                <p className="px-5 py-8 text-sm text-center" style={{ color: 'var(--text-muted)' }}>
+                  Nema grešaka za ovaj batch u bazi. (Greške se upisuju od sledećeg batch-a.)
+                </p>
+              ) : (
+                <table className="w-full text-xs">
+                  <thead style={{ background: 'var(--bg-elevated)' }}>
+                    <tr>
+                      {['Članak', 'Faza', 'Tip greške', 'Poruka', 'Vreme'].map(h => (
+                        <th key={h} className={thCls} style={{ color: 'var(--text-muted)' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {errorsData.errors.map(e => (
+                      <tr key={e.id} className="border-b" style={{ borderColor: 'var(--border)' }}>
+                        <td className="px-4 py-2 tabular-nums" style={{ color: 'var(--text-secondary)' }}>
+                          {e.article_id ? (
+                            <a href={`/articles/${e.article_id}`} target="_blank" rel="noreferrer"
+                              className="underline decoration-dotted hover:opacity-80"
+                              style={{ color: 'var(--accent)' }}>#{e.article_id}</a>
+                          ) : '—'}
+                        </td>
+                        <td className="px-4 py-2" style={{ color: 'var(--text-muted)' }}>{e.stage || '—'}</td>
+                        <td className="px-4 py-2 font-mono" style={{ color: '#f87171' }}>{e.error_type || '—'}</td>
+                        <td className="px-4 py-2 max-w-xs" style={{ color: 'var(--text-secondary)' }}>
+                          <span title={e.error_message} className="block truncate">{e.error_message || '—'}</span>
+                        </td>
+                        <td className="px-4 py-2 whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>
+                          {e.created_at ? new Date(e.created_at).toLocaleTimeString('sr-Latn', { hour12: false }) : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

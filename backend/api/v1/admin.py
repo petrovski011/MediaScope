@@ -9,7 +9,7 @@ from typing import Optional
 import redis as redis_lib
 from database import get_db
 from models.users import User
-from models.articles import ScraperRun, PipelineBatch
+from models.articles import ScraperRun, PipelineBatch, ProcessingError
 from models.sources import Source
 from models.analysis import CalibrationFeedback, CalibrationPrompt
 from api.deps import require_role
@@ -228,6 +228,40 @@ async def pipeline_batches(
         "page": page,
         "per_page": per_page,
         "pages": (total + per_page - 1) // per_page if total else 1,
+    }
+
+
+@router.get("/pipeline/batches/{batch_db_id}/errors")
+async def pipeline_batch_errors(
+    batch_db_id: int,
+    current_user=_require_admin,
+    db: AsyncSession = Depends(get_db),
+):
+    """Lista per-article grešaka za dati batch (po DB id-u)."""
+    batch = await db.get(PipelineBatch, batch_db_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch nije pronađen")
+
+    rows = (await db.execute(
+        select(ProcessingError)
+        .where(ProcessingError.batch_id == batch.batch_id)
+        .order_by(ProcessingError.created_at)
+        .limit(200)
+    )).scalars().all()
+
+    return {
+        "batch_id": batch.batch_id,
+        "errors": [
+            {
+                "id": e.id,
+                "article_id": e.article_id,
+                "stage": e.stage,
+                "error_type": e.error_type,
+                "error_message": e.error_message,
+                "created_at": e.created_at.isoformat() if e.created_at else None,
+            }
+            for e in rows
+        ],
     }
 
 
