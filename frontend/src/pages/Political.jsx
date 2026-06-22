@@ -1,7 +1,9 @@
-import { useQuery } from '@tanstack/react-query'
-import { Landmark, Users, AlertTriangle, Shield, Globe } from 'lucide-react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useState } from 'react'
+import { Landmark, Users, AlertTriangle, Shield, Globe, GitMerge, Unlink, ChevronDown, ChevronUp } from 'lucide-react'
 import { useFilters, toParams } from '../store/filters'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../store/auth'
 import api from '../lib/api'
 
 const TOPIC_LABELS = {
@@ -101,8 +103,188 @@ function ActorRow({ a }) {
   )
 }
 
+function EntityMergePanel() {
+  const qc = useQueryClient()
+  const [open, setOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState('suggestions')
+  const [selectedForMerge, setSelectedForMerge] = useState({})
+
+  const { data: suggestionsData, isLoading: loadingSugg } = useQuery({
+    queryKey: ['entity-suggestions'],
+    queryFn: () => api.get('/entities/suggestions').then(r => r.data),
+    enabled: open,
+  })
+  const { data: groupsData } = useQuery({
+    queryKey: ['entity-groups'],
+    queryFn: () => api.get('/entities/groups').then(r => r.data),
+    enabled: open && activeTab === 'groups',
+  })
+
+  const mergeMut = useMutation({
+    mutationFn: (body) => api.post('/entities/merge', body).then(r => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries(['entity-suggestions'])
+      qc.invalidateQueries(['entity-groups'])
+      qc.invalidateQueries(['political-actors'])
+      setSelectedForMerge({})
+    },
+  })
+  const decoupleMut = useMutation({
+    mutationFn: (entityId) => api.delete(`/entities/${entityId}/canonical`).then(r => r.data),
+    onSuccess: () => {
+      qc.invalidateQueries(['entity-groups'])
+      qc.invalidateQueries(['entity-suggestions'])
+      qc.invalidateQueries(['political-actors'])
+    },
+  })
+
+  const suggestions = suggestionsData?.suggestions || []
+  const groups = groupsData?.groups || []
+
+  function handleMerge(suggestion) {
+    const sel = selectedForMerge[suggestion.normalized] || {}
+    const canonicalId = sel.canonical
+    if (!canonicalId) return
+    const aliasIds = suggestion.entities
+      .filter(e => e.id !== canonicalId)
+      .map(e => e.id)
+    if (!aliasIds.length) return
+    mergeMut.mutate({ canonical_id: canonicalId, alias_ids: aliasIds })
+  }
+
+  const cardStyle = { background: 'var(--bg-surface)', borderColor: 'var(--border)' }
+  const tabBtn = (t) => ({
+    padding: '4px 12px', borderRadius: 6, fontSize: 12, fontWeight: 500,
+    background: activeTab === t ? 'var(--accent)' : 'transparent',
+    color: activeTab === t ? '#fff' : 'var(--text-muted)',
+    border: 'none', cursor: 'pointer',
+  })
+
+  return (
+    <div className="rounded-xl border overflow-hidden" style={cardStyle}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full px-4 py-2.5 border-b flex items-center gap-2 text-left"
+        style={{ borderColor: 'var(--border)', background: 'transparent' }}
+      >
+        <GitMerge size={13} style={{ color: 'var(--text-muted)' }} />
+        <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+          Upravljanje akterima
+        </span>
+        <span className="ml-auto" style={{ color: 'var(--text-muted)' }}>
+          {open ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </span>
+      </button>
+
+      {open && (
+        <div className="p-4 space-y-4">
+          <div className="flex gap-1">
+            <button style={tabBtn('suggestions')} onClick={() => setActiveTab('suggestions')}>
+              Predlozi ({suggestions.length})
+            </button>
+            <button style={tabBtn('groups')} onClick={() => setActiveTab('groups')}>
+              Aktivne grupe
+            </button>
+          </div>
+
+          {activeTab === 'suggestions' && (
+            <div className="space-y-2">
+              {loadingSugg && <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Učitavanje...</p>}
+              {!loadingSugg && suggestions.length === 0 && (
+                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Nema predloga za spajanje.</p>
+              )}
+              {suggestions.map(sg => {
+                const sel = selectedForMerge[sg.normalized] || {}
+                return (
+                  <div key={sg.normalized} className="rounded-lg border p-3 space-y-2"
+                    style={{ borderColor: 'var(--border)', background: 'var(--bg-base)' }}>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-mono px-1.5 py-0.5 rounded"
+                        style={{ background: 'var(--border)', color: 'var(--text-muted)' }}>
+                        {sg.entity_type}
+                      </span>
+                      {sg.entities.map(e => (
+                        <label key={e.id} className="flex items-center gap-1 text-xs cursor-pointer"
+                          style={{ color: sel.canonical === e.id ? 'var(--accent)' : 'var(--text-primary)' }}>
+                          <input
+                            type="radio"
+                            name={`canon-${sg.normalized}`}
+                            checked={sel.canonical === e.id}
+                            onChange={() => setSelectedForMerge(s => ({ ...s, [sg.normalized]: { canonical: e.id } }))}
+                          />
+                          {e.name}
+                        </label>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                        Izaberi kanonski → ostali postaju aliasi
+                      </span>
+                      <button
+                        disabled={!sel.canonical || mergeMut.isPending}
+                        onClick={() => handleMerge(sg)}
+                        className="ml-auto text-xs px-3 py-1 rounded"
+                        style={{
+                          background: sel.canonical ? 'var(--accent)' : 'var(--border)',
+                          color: sel.canonical ? '#fff' : 'var(--text-muted)',
+                          border: 'none', cursor: sel.canonical ? 'pointer' : 'default',
+                        }}
+                      >
+                        Spoji
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {activeTab === 'groups' && (
+            <div className="space-y-2">
+              {groups.length === 0 && (
+                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Nema aktivnih grupacija.</p>
+              )}
+              {groups.map(g => (
+                <div key={g.canonical_id} className="rounded-lg border p-3"
+                  style={{ borderColor: 'var(--border)', background: 'var(--bg-base)' }}>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <span className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>
+                      {g.canonical_name}
+                    </span>
+                    <span className="text-xs px-1.5 py-0.5 rounded"
+                      style={{ background: 'var(--border)', color: 'var(--text-muted)' }}>
+                      {g.entity_type}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {(g.aliases || []).map(a => (
+                      <div key={a.id} className="flex items-center gap-1 text-xs px-2 py-0.5 rounded"
+                        style={{ background: 'var(--border)', color: 'var(--text-muted)' }}>
+                        {a.name}
+                        <button
+                          onClick={() => decoupleMut.mutate(a.id)}
+                          title="Odvoji iz grupe"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, lineHeight: 1 }}
+                        >
+                          <Unlink size={11} style={{ color: '#ef4444' }} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Political() {
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const isResearcher = user?.role === 'researcher' || user?.role === 'admin'
   const { dateFrom, dateTo, selectedSources } = useFilters()
   const filterParams = toParams({ dateFrom, dateTo, selectedSources })
 
@@ -297,6 +479,8 @@ export default function Political() {
           <AlertTriangle size={12} className="mt-0.5 shrink-0" style={{ color: '#f59e0b' }} /> {actorsData.methodology_note}
         </p>
       )}
+
+      {isResearcher && <EntityMergePanel />}
     </div>
   )
 }

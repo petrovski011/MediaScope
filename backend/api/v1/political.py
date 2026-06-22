@@ -46,24 +46,22 @@ async def political_actors(
         df += " AND a.source_id = ANY(:source_ids)"; params["source_ids"] = src_ids
 
     rows = (await db.execute(text(f"""
-        WITH src_align AS (
-            SELECT a.source_id, AVG(aa.political_score) AS src_score
-            FROM articles a JOIN article_analysis aa ON aa.article_id=a.id
-            WHERE aa.political_score IS NOT NULL
-            GROUP BY a.source_id
-        )
-        SELECT e.id, e.name, e.entity_type,
-               COUNT(ae.id) AS mentions,
-               COUNT(DISTINCT a.source_id) AS source_count,
-               SUM(CASE WHEN ae.sentiment > 0.2 THEN ae.mention_count ELSE 0 END) AS positive_mentions,
-               SUM(CASE WHEN ae.sentiment < -0.2 THEN ae.mention_count ELSE 0 END) AS negative_mentions,
-               SUM(CASE WHEN ae.sentiment BETWEEN -0.2 AND 0.2 THEN ae.mention_count ELSE 0 END) AS neutral_mentions,
-               AVG(ae.sentiment) AS avg_entity_sentiment
+        SELECT
+            COALESCE(canon.id, e.id)          AS eff_id,
+            COALESCE(canon.name, e.name)       AS name,
+            COALESCE(canon.entity_type, e.entity_type) AS entity_type,
+            COUNT(ae.id)                       AS mentions,
+            COUNT(DISTINCT a.source_id)        AS source_count,
+            SUM(CASE WHEN ae.sentiment >  0.2 THEN ae.mention_count ELSE 0 END) AS positive_mentions,
+            SUM(CASE WHEN ae.sentiment < -0.2 THEN ae.mention_count ELSE 0 END) AS negative_mentions,
+            SUM(CASE WHEN ae.sentiment BETWEEN -0.2 AND 0.2 THEN ae.mention_count ELSE 0 END) AS neutral_mentions,
+            AVG(ae.sentiment)                  AS avg_entity_sentiment
         FROM entities e
+        LEFT JOIN entities canon ON canon.id = e.canonical_id
         JOIN article_entities ae ON ae.entity_id = e.id
         JOIN articles a ON a.id = ae.article_id
-        WHERE e.is_political_actor = TRUE {df}
-        GROUP BY e.id, e.name, e.entity_type
+        WHERE (e.is_political_actor = TRUE OR canon.is_political_actor = TRUE) {df}
+        GROUP BY COALESCE(canon.id, e.id), COALESCE(canon.name, e.name), COALESCE(canon.entity_type, e.entity_type)
         ORDER BY mentions DESC
         LIMIT :limit
     """), params)).all()
@@ -71,7 +69,7 @@ async def political_actors(
     return {
         "actors": [
             {
-                "id": r.id, "name": r.name, "entity_type": r.entity_type,
+                "id": r.eff_id, "name": r.name, "entity_type": r.entity_type,
                 "mentions": r.mentions, "source_count": r.source_count,
                 "positive_mentions": int(r.positive_mentions or 0),
                 "negative_mentions": int(r.negative_mentions or 0),

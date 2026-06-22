@@ -81,6 +81,7 @@ class Entity(Base):
     name_variants = Column(ARRAY(Text))
     entity_type = Column(String(20), nullable=False)  # person, organization, location
     is_political_actor = Column(Boolean, default=False)
+    canonical_id = Column(BigInteger, ForeignKey("entities.id", ondelete="SET NULL"), nullable=True)
     description = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
