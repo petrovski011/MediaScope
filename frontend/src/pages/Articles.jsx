@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { useQuery } from '@tanstack/react-query'
-import { Search, ChevronLeft, ChevronRight, Download, X } from 'lucide-react'
+import { Search, ChevronLeft, ChevronRight, Download, X, ChevronUp, ChevronDown } from 'lucide-react'
 import { useFilters, toParams } from '../store/filters'
 import { useAuth } from '../store/auth'
 import api from '../lib/api'
@@ -41,6 +41,8 @@ export default function Articles() {
   const [topic, setTopic] = useState('')
   const [hasAnalysis, setHasAnalysis] = useState('')
   const [exporting, setExporting] = useState(false)
+  const [sortField, setSortField] = useState('published_at')
+  const [sortOrder, setSortOrder] = useState('desc')
 
   const { dateFrom, dateTo, selectedSources } = useFilters()
   const globalParams = toParams({ dateFrom, dateTo, selectedSources })
@@ -53,10 +55,11 @@ export default function Articles() {
   const urlSourceIds = searchParams.get('source_ids')
   const narrativeClusterId = searchParams.get('narrative_cluster_id')
   const framingProposalId = searchParams.get('framing_proposal_id')
+  const urlSentiment = searchParams.get('sentiment')
 
-  useEffect(() => { setPage(1) }, [dateFrom, dateTo, selectedSources.join(','), entityId, entitySentiment, framingTypeId, framingProposalId, urlSourceIds, narrativeClusterId])
+  useEffect(() => { setPage(1) }, [dateFrom, dateTo, selectedSources.join(','), entityId, entitySentiment, framingTypeId, framingProposalId, urlSourceIds, narrativeClusterId, urlSentiment])
 
-  const params = new URLSearchParams({ page, per_page: 25, ...globalParams })
+  const params = new URLSearchParams({ page, per_page: 25, sort: sortField, order: sortOrder, ...globalParams })
   if (search) params.set('search', search)
   if (topic) params.set('topic', topic)
   if (hasAnalysis) params.set('has_analysis', hasAnalysis)
@@ -66,9 +69,21 @@ export default function Articles() {
   if (framingProposalId) params.set('framing_proposal_id', framingProposalId)
   if (urlSourceIds) params.set('source_ids', urlSourceIds)
   if (narrativeClusterId) params.set('narrative_cluster_id', narrativeClusterId)
+  if (urlSentiment) params.set('sentiment', urlSentiment)
+
+  const handleSort = field => {
+    if (sortField === field) setSortOrder(o => o === 'desc' ? 'asc' : 'desc')
+    else { setSortField(field); setSortOrder('desc') }
+    setPage(1)
+  }
+
+  const SortIcon = ({ field }) => {
+    if (sortField !== field) return <ChevronDown size={11} className="opacity-30" />
+    return sortOrder === 'desc' ? <ChevronDown size={11} className="opacity-80" /> : <ChevronUp size={11} className="opacity-80" />
+  }
 
   const { data, isLoading } = useQuery({
-    queryKey: ['articles', page, search, topic, hasAnalysis, dateFrom, dateTo, selectedSources.join(','), entityId, entitySentiment, framingTypeId, framingProposalId, urlSourceIds, narrativeClusterId],
+    queryKey: ['articles', page, search, topic, hasAnalysis, dateFrom, dateTo, selectedSources.join(','), entityId, entitySentiment, framingTypeId, framingProposalId, urlSourceIds, narrativeClusterId, urlSentiment, sortField, sortOrder],
     queryFn: () => api.get(`/articles?${params}`).then(r => r.data),
     keepPreviousData: true,
   })
@@ -130,6 +145,15 @@ export default function Articles() {
                 </button>
               </span>
             )}
+            {urlSentiment && (
+              <span className="flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border"
+                style={{ borderColor: '#10b981', color: '#6ee7b7', background: 'rgba(16,185,129,0.1)' }}>
+                sentiment: {urlSentiment}
+                <button onClick={() => setSearchParams({})} className="hover:text-white transition-colors ml-0.5">
+                  <X size={10} />
+                </button>
+              </span>
+            )}
           </div>
         </div>
         <button onClick={handleExport} disabled={exporting || !data?.total}
@@ -142,21 +166,26 @@ export default function Articles() {
 
       {/* Filteri */}
       <div className="flex gap-3 mb-4 flex-wrap">
-        <form onSubmit={handleSearch} className="flex gap-2 flex-1 min-w-60">
-          <div className="relative flex-1">
-            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-muted)' }} />
-            <input
-              value={searchInput} onChange={e => setSearchInput(e.target.value)}
-              placeholder="Pretraži članke (naslov i tekst)..."
-              className="w-full pl-8 pr-3 py-2 rounded-lg text-sm border outline-none"
-              style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
-            />
-          </div>
-          <button type="submit" className="px-3 py-2 rounded-lg text-sm border transition-colors hover:bg-white/5"
-            style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
-            Traži
-          </button>
-        </form>
+        <div className="flex flex-col gap-1 flex-1 min-w-60">
+          <form onSubmit={handleSearch} className="flex gap-2">
+            <div className="relative flex-1">
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-muted)' }} />
+              <input
+                value={searchInput} onChange={e => setSearchInput(e.target.value)}
+                placeholder="Pretraži članke (naslov i tekst)..."
+                className="w-full pl-8 pr-3 py-2 rounded-lg text-sm border outline-none"
+                style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+              />
+            </div>
+            <button type="submit" className="px-3 py-2 rounded-lg text-sm border transition-colors hover:bg-white/5"
+              style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
+              Traži
+            </button>
+          </form>
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            <span className="font-mono">"tačna fraza"</span> · <span className="font-mono">reč1 reč2</span> = oba pojma · <span className="font-mono">OR</span> = ili · <span className="font-mono">-isključi</span>
+          </p>
+        </div>
 
         <select value={topic} onChange={e => { setTopic(e.target.value); setPage(1) }}
           className="px-3 py-2 rounded-lg text-sm border outline-none"
@@ -179,8 +208,14 @@ export default function Articles() {
         <table className="w-full">
           <thead>
             <tr className="border-b text-left" style={{ borderColor: 'var(--border)' }}>
-              {['Izvor', 'Naslov', 'Tema', 'Political', 'Sens.', 'Datum'].map(h => (
-                <th key={h} className="px-4 py-2.5 text-xs font-medium" style={{ color: 'var(--text-muted)' }}>{h}</th>
+              {[['Izvor', null], ['Naslov', null], ['Tema', null], ['Political', 'political_score'], ['Sens.', 'sensationalism'], ['Datum', 'published_at']].map(([h, field]) => (
+                <th key={h} className="px-4 py-2.5 text-xs font-medium" style={{ color: 'var(--text-muted)' }}>
+                  {field ? (
+                    <button onClick={() => handleSort(field)} className="flex items-center gap-0.5 hover:opacity-100 transition-opacity" style={{ color: sortField === field ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                      {h}<SortIcon field={field} />
+                    </button>
+                  ) : h}
+                </th>
               ))}
             </tr>
           </thead>

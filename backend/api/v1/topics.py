@@ -231,3 +231,45 @@ async def reject_topic_proposal(
                entity_id=proposal_id, old_status="pending", new_status="rejected")
     await db.commit()
     return {"id": proposal_id, "rejected": True}
+
+
+class MergeTopicsRequest(BaseModel):
+    source_topic: str
+    target_topic: str
+
+
+@router.post("/merge")
+async def merge_topics(
+    req: MergeTopicsRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_role("researcher", "admin")),
+):
+    """Spoji source_topic u target_topic — prebaci sve article_analysis zapise i deaktiviraj izvornu temu."""
+    affected = await db.execute(
+        text("SELECT COUNT(*) FROM article_analysis WHERE primary_topic = :src"),
+        {"src": req.source_topic},
+    )
+    count = affected.scalar()
+    if count == 0:
+        raise HTTPException(status_code=404, detail=f"Tema '{req.source_topic}' nema članaka ili ne postoji")
+
+    await db.execute(
+        text("UPDATE article_analysis SET primary_topic = :tgt WHERE primary_topic = :src"),
+        {"src": req.source_topic, "tgt": req.target_topic},
+    )
+    await db.execute(
+        text("UPDATE topics SET is_active = FALSE WHERE key = :src"),
+        {"src": req.source_topic},
+    )
+
+    log_action(db, user=current_user, action_type="merge_topics", entity_type="topic",
+               entity_id=0, old_status=req.source_topic, new_status=req.target_topic)
+    await db.commit()
+
+    return {
+        "source_topic": req.source_topic,
+        "target_topic": req.target_topic,
+        "articles_moved": count,
+        "reversible": True,
+        "reverse_hint": f"POST /topics/merge sa source='{req.target_topic}' i target='{req.source_topic}' vraća unazad",
+    }

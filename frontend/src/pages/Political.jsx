@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { Landmark, Users, AlertTriangle, Shield } from 'lucide-react'
+import { Landmark, Users, AlertTriangle, Shield, Globe } from 'lucide-react'
 import { useFilters, toParams } from '../store/filters'
 import { useNavigate } from 'react-router-dom'
 import api from '../lib/api'
@@ -20,6 +20,24 @@ const PROPAGANDA_LABELS = {
   DEFAMATION: 'Kleveta', SMEAR_CAMPAIGN: 'Blatna kampanja',
   WHATABOUTISM: 'Whataboutism', CHERRY_PICKING: 'Selektivni fakti',
   EMOTIONAL_APPEAL: 'Emotivni apel',
+  FAR_RIGHT_NARRATIVE: 'Desničarski narativ',
+  ULTRA_RIGHT_NARRATIVE: 'Ultradesničarski narativ',
+}
+
+const TARGET_GROUP_LABELS = {
+  civil_society: 'Civilno društvo / NVO',
+  opposition: 'Opozicija',
+  students: 'Studenti / protesti',
+  media: 'Mediji / novinari',
+  other: 'Ostalo',
+}
+
+const TARGET_GROUP_COLORS = {
+  civil_society: '#8b5cf6',
+  opposition: '#3b82f6',
+  students: '#f59e0b',
+  media: '#06b6d4',
+  other: '#6b7280',
 }
 
 function SentimentBar({ pos, neg, neu }) {
@@ -90,16 +108,22 @@ export default function Political() {
 
   const { data: actorsData } = useQuery({
     queryKey: ['political-actors', filterParams],
-    queryFn: () => api.get(`/political/actors?${filterParams}`).then(r => r.data),
+    queryFn: () => api.get(`/political/actors?${new URLSearchParams(filterParams)}`).then(r => r.data),
   })
   const { data: propagandaData } = useQuery({
     queryKey: ['political-propaganda', filterParams],
-    queryFn: () => api.get(`/political/propaganda?${filterParams}`).then(r => r.data),
+    queryFn: () => api.get(`/political/propaganda?${new URLSearchParams(filterParams)}`).then(r => r.data),
+  })
+  const { data: geoData } = useQuery({
+    queryKey: ['political-geopolitical', filterParams],
+    queryFn: () => api.get(`/political/geopolitical?${new URLSearchParams(filterParams)}`).then(r => r.data),
   })
 
   const actors = actorsData?.actors || []
   const byTechnique = propagandaData?.by_technique || []
   const bySrcProp = propagandaData?.by_source || []
+  const byTargetGroup = propagandaData?.by_target_group || []
+  const geoActors = geoData?.by_actor || []
   const maxTech = Math.max(1, ...byTechnique.map(t => t.count))
 
   return (
@@ -152,7 +176,7 @@ export default function Political() {
               <div className="space-y-2">
                 {byTechnique.map(t => (
                   <div key={t.technique} className="flex items-center gap-3">
-                    <span className="text-xs w-36 truncate" style={{ color: 'var(--text-secondary)' }}>
+                    <span className="text-xs w-40 truncate" style={{ color: 'var(--text-secondary)' }}>
                       {PROPAGANDA_LABELS[t.technique] || t.technique}
                     </span>
                     <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg-elevated)' }}>
@@ -187,8 +211,83 @@ export default function Political() {
               </div>
             </div>
           </div>
+
+          {/* Smear kampanje po target grupi */}
+          {byTargetGroup.length > 0 && (
+            <div className="px-4 pb-4 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
+              <h3 className="text-xs font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
+                Mete smear kampanja / kleveta
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {byTargetGroup.map(tg => (
+                  <span key={tg.target_group} className="text-xs px-2 py-1 rounded-full font-medium"
+                    style={{
+                      background: `${TARGET_GROUP_COLORS[tg.target_group] || '#6b7280'}22`,
+                      color: TARGET_GROUP_COLORS[tg.target_group] || '#6b7280',
+                      border: `1px solid ${TARGET_GROUP_COLORS[tg.target_group] || '#6b7280'}44`,
+                    }}>
+                    {TARGET_GROUP_LABELS[tg.target_group] || tg.target_group} · {tg.count}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="px-4 py-2 text-xs border-t italic" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
-            Propaganda detekcija je eksperimentalna — popunjava se re-analizom novih članaka.
+            Propaganda detekcija je eksperimentalna — primenjuje se na nove članke od implementacije.
+          </div>
+        </div>
+      )}
+
+      {/* Geopolitički sentiment */}
+      {geoActors.length > 0 && (
+        <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+          <div className="px-4 py-2.5 border-b flex items-center gap-2" style={{ borderColor: 'var(--border)' }}>
+            <Globe size={13} style={{ color: '#3b82f6' }} />
+            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
+              Geopolitički sentiment
+            </span>
+            <span className="ml-auto text-xs italic" style={{ color: 'var(--text-muted)' }}>
+              kako srpski mediji prikazuju geopolitičke aktere
+            </span>
+          </div>
+          <div className="p-4 space-y-3">
+            {geoActors.map(g => {
+              const sent = g.avg_sentiment
+              const isPos = sent >= 0
+              const barPct = Math.abs(sent) * 50
+              const color = sent > 0.1 ? '#22c55e' : sent < -0.1 ? '#ef4444' : '#6b7280'
+              return (
+                <div key={g.actor} className="flex items-center gap-3">
+                  <span className="text-sm font-medium w-14" style={{ color: 'var(--text-primary)' }}>{g.actor}</span>
+                  {/* Diverging bar */}
+                  <div className="flex-1 flex items-center">
+                    <div className="flex-1 h-3 flex justify-end" style={{ paddingRight: '50%' }}>
+                      {!isPos && (
+                        <div className="h-full rounded-l-full" style={{ width: `${barPct * 2}%`, background: '#ef4444' }} />
+                      )}
+                    </div>
+                    <div className="w-px h-4 shrink-0" style={{ background: 'var(--border)' }} />
+                    <div className="flex-1 h-3 flex justify-start" style={{ paddingLeft: '0%' }}>
+                      {isPos && (
+                        <div className="h-full rounded-r-full" style={{ width: `${barPct * 2}%`, background: '#22c55e' }} />
+                      )}
+                    </div>
+                  </div>
+                  <span className="text-xs tabular-nums w-12 text-right font-medium" style={{ color }}>
+                    {sent > 0 ? '+' : ''}{sent.toFixed(2)}
+                  </span>
+                  <span className="text-xs w-16 text-right" style={{ color: 'var(--text-muted)' }}>
+                    {g.article_count} čl.
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+          <div className="px-4 py-2 text-xs border-t flex items-center gap-6" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
+            <span className="flex items-center gap-1"><span className="w-3 h-1.5 rounded inline-block" style={{ background: '#ef4444' }} /> negativan tretman</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-1.5 rounded inline-block" style={{ background: '#22c55e' }} /> pozitivan tretman</span>
+            <span className="ml-auto italic">{geoData?.methodology_note}</span>
           </div>
         </div>
       )}

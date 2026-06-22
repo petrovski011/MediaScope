@@ -171,11 +171,11 @@ function FramingEvolution({ topic }) {
 function CoverageDetail({ topic, filterParams }) {
   const { data: cov } = useQuery({
     queryKey: ['topic-coverage', topic, filterParams],
-    queryFn: () => api.get(`/topics/${encodeURIComponent(topic)}/coverage?${filterParams}`).then(r => r.data),
+    queryFn: () => api.get(`/topics/${encodeURIComponent(topic)}/coverage?${new URLSearchParams(filterParams)}`).then(r => r.data),
   })
   const { data: fr } = useQuery({
     queryKey: ['topic-framing', topic, filterParams],
-    queryFn: () => api.get(`/topics/${encodeURIComponent(topic)}/framing?${filterParams}`).then(r => r.data),
+    queryFn: () => api.get(`/topics/${encodeURIComponent(topic)}/framing?${new URLSearchParams(filterParams)}`).then(r => r.data),
   })
   if (!cov) return <div className="px-4 py-6 text-sm" style={{ color: 'var(--text-muted)' }}>Učitavanje…</div>
 
@@ -373,10 +373,24 @@ export default function Topics() {
   const filterParams = toParams({ dateFrom, dateTo, selectedSources })
   const [selected, setSelected] = useState(null)
   const [showSmall, setShowSmall] = useState(false)
+  const [merging, setMerging] = useState(null)
+  const [mergeTarget, setMergeTarget] = useState('')
+  const { user } = useAuth()
+  const canMerge = user?.role === 'admin' || user?.role === 'researcher'
+  const qc = useQueryClient()
+
+  const mergeMutation = useMutation({
+    mutationFn: ({ source, target }) => api.post('/topics/merge', { source_topic: source, target_topic: target }).then(r => r.data),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['topics-list'] })
+      setMerging(null)
+      setMergeTarget('')
+    },
+  })
 
   const { data } = useQuery({
     queryKey: ['topics-list', filterParams],
-    queryFn: () => api.get(`/topics?${filterParams}`).then(r => r.data),
+    queryFn: () => api.get(`/topics?${new URLSearchParams(filterParams)}`).then(r => r.data),
   })
   const topics = data?.topics || []
   const mainTopics = topics.filter(t => t.article_count >= MIN_MAIN_ARTICLES)
@@ -443,18 +457,65 @@ export default function Topics() {
             </span>
           </button>
           {showSmall && (
-            <div className="border-t px-4 py-3 flex flex-wrap gap-2" style={{ borderColor: 'var(--border)' }}>
-              {smallTopics.map(t => (
-                <button key={t.topic} onClick={() => setSelected(t.topic)}
-                  className="px-3 py-1.5 rounded-lg text-xs border transition-colors"
-                  style={{
-                    background: active === t.topic ? 'var(--accent)' : 'var(--bg-elevated)',
-                    borderColor: active === t.topic ? 'var(--accent)' : 'var(--border)',
-                    color: active === t.topic ? 'white' : 'var(--text-muted)',
-                  }}>
-                  {tlabel(t.topic)} <span className="opacity-70">{t.article_count}</span>
-                </button>
-              ))}
+            <div className="border-t px-4 py-3" style={{ borderColor: 'var(--border)' }}>
+              <div className="flex flex-wrap gap-2 mb-3">
+                {smallTopics.map(t => (
+                  <button key={t.topic} onClick={() => setSelected(t.topic)}
+                    className="px-3 py-1.5 rounded-lg text-xs border transition-colors"
+                    style={{
+                      background: active === t.topic ? 'var(--accent)' : 'var(--bg-elevated)',
+                      borderColor: active === t.topic ? 'var(--accent)' : 'var(--border)',
+                      color: active === t.topic ? 'white' : 'var(--text-muted)',
+                    }}>
+                    {tlabel(t.topic)} <span className="opacity-70">{t.article_count}</span>
+                  </button>
+                ))}
+              </div>
+              {canMerge && (
+                <div className="border-t pt-3" style={{ borderColor: 'var(--border)' }}>
+                  <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>Spoji malu temu u veću (akcija je reverzibilna):</p>
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <select value={merging || ''} onChange={e => { setMerging(e.target.value); setMergeTarget('') }}
+                      className="text-xs rounded border px-2 py-1.5"
+                      style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
+                      <option value="">— izvor (mala tema) —</option>
+                      {smallTopics.map(t => <option key={t.topic} value={t.topic}>{tlabel(t.topic)} ({t.article_count})</option>)}
+                    </select>
+                    {merging && (
+                      <>
+                        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>→</span>
+                        <select value={mergeTarget} onChange={e => setMergeTarget(e.target.value)}
+                          className="text-xs rounded border px-2 py-1.5"
+                          style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
+                          <option value="">— ciljna tema —</option>
+                          {mainTopics.map(t => <option key={t.topic} value={t.topic}>{tlabel(t.topic)}</option>)}
+                          {smallTopics.filter(t => t.topic !== merging).map(t => <option key={t.topic} value={t.topic}>{tlabel(t.topic)}</option>)}
+                        </select>
+                        <button
+                          onClick={() => {
+                            if (!mergeTarget || !window.confirm(`Spojiti "${tlabel(merging)}" u "${tlabel(mergeTarget)}"?\n\nSvi članci se prebacuju. Akcija je reverzibilna (Log).`)) return
+                            mergeMutation.mutate({ source: merging, target: mergeTarget })
+                          }}
+                          disabled={!mergeTarget || mergeMutation.isPending}
+                          className="px-3 py-1.5 rounded text-xs border transition-colors disabled:opacity-40"
+                          style={{ borderColor: '#ef4444', color: '#f87171', background: 'rgba(239,68,68,0.08)' }}>
+                          {mergeMutation.isPending ? 'Spajam...' : 'Spoji'}
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  {mergeMutation.isSuccess && (
+                    <p className="text-xs mt-1.5" style={{ color: '#22c55e' }}>
+                      Spojeno {mergeMutation.data?.articles_moved} članaka.
+                    </p>
+                  )}
+                  {mergeMutation.isError && (
+                    <p className="text-xs mt-1.5" style={{ color: '#f87171' }}>
+                      Greška: {mergeMutation.error?.response?.data?.detail || 'Neuspelo spajanje'}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

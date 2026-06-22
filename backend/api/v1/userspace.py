@@ -42,7 +42,7 @@ async def list_annotations(
 ):
     rows = (await db.execute(text("""
         SELECT a.id, a.body, a.user_id, a.is_private, a.created_at, a.updated_at,
-               u.username AS author_name
+               u.name AS author_name
         FROM annotations a
         LEFT JOIN users u ON u.id = a.user_id
         WHERE a.article_id = :article_id

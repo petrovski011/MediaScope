@@ -1,7 +1,7 @@
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
-import { User, Building2, MapPin, MessageSquare, Copy, AlertTriangle, Plus, X, BookOpen, Check, Sparkles, ChevronLeft, ChevronRight, RotateCcw, Search, Pencil, Quote } from 'lucide-react'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+import { User, Building2, MapPin, MessageSquare, Copy, AlertTriangle, Plus, X, BookOpen, Check, Sparkles, ChevronLeft, ChevronRight, RotateCcw, Search, Pencil, Quote, TrendingUp } from 'lucide-react'
 import { useFilters, toParams } from '../store/filters'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../store/auth'
@@ -30,11 +30,6 @@ const TOPIC_LABELS = {
   HRONIKA: 'Hronika', ZDRAVLJE: 'Zdravlje', OBRAZOVANJE: 'Obrazovanje',
   SPOLJNA_POLITIKA: 'Spoljna politika', LOKALNA_VLAST: 'Lokalna vlast', DRUSTVO: 'Društvo',
 }
-
-const TOPIC_COLORS = [
-  '#6366f1', '#3b82f6', '#06b6d4', '#10b981', '#f59e0b',
-  '#ef4444', '#ec4899', '#8b5cf6', '#14b8a6', '#f97316',
-]
 
 const ALL_TOPICS = Object.keys(TOPIC_LABELS)
 
@@ -81,6 +76,64 @@ function CitationsModal({ entity, onClose }) {
               </div>
               {m.context_snippet && <p className="text-xs italic leading-snug" style={{ color: 'var(--text-secondary)' }}>"{m.context_snippet}"</p>}
               <p className="text-xs mt-0.5 leading-snug" style={{ color: 'var(--text-primary)' }}>{m.title}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function NarrativeCitationsModal({ narrative, onClose }) {
+  const navigate = useNavigate()
+  const { data, isLoading } = useQuery({
+    queryKey: ['narrative-citations', narrative.id],
+    queryFn: () => api.get(`/narratives/${narrative.id}/citations?limit=30`).then(r => r.data),
+  })
+  const citations = data?.citations || []
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={onClose}>
+      <div className="rounded-xl border w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col"
+        style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }} onClick={e => e.stopPropagation()}>
+        <div className="px-4 py-3 border-b flex items-center justify-between" style={{ borderColor: 'var(--border)' }}>
+          <div className="flex items-center gap-2">
+            <Quote size={14} style={{ color: '#8b5cf6' }} />
+            <h3 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Citati: {narrative.name}</h3>
+          </div>
+          <button onClick={onClose}><X size={16} style={{ color: 'var(--text-muted)' }} /></button>
+        </div>
+        <div className="overflow-y-auto divide-y" style={{ borderColor: 'var(--border)' }}>
+          {isLoading ? (
+            <div className="p-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>Učitavanje…</div>
+          ) : citations.length === 0 ? (
+            <div className="p-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
+              Nema sačuvanih citata za ovaj narativ. Citati se popunjavaju pri AI analizi novih članaka.
+            </div>
+          ) : citations.map((c, i) => (
+            <div key={i} className="px-4 py-3 cursor-pointer hover:bg-white/[0.02] transition-colors"
+              onClick={() => navigate(`/articles/${c.article_id}`)}>
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="text-[10px] px-1.5 py-0.5 rounded font-medium"
+                  style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
+                  {c.source_id}
+                </span>
+                {c.published_at && (
+                  <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                    {new Date(c.published_at).toLocaleDateString('sr-RS')}
+                  </span>
+                )}
+                {c.confidence != null && (
+                  <span className="text-[10px] ml-auto" style={{ color: 'var(--text-muted)' }}>
+                    pouzdanost: {Math.round(c.confidence * 100)}%
+                  </span>
+                )}
+              </div>
+              {c.supporting_text && (
+                <p className="text-xs italic leading-relaxed mb-1" style={{ color: 'var(--text-secondary)' }}>
+                  "{c.supporting_text}"
+                </p>
+              )}
+              <p className="text-xs leading-snug" style={{ color: 'var(--text-muted)' }}>{c.title}</p>
             </div>
           ))}
         </div>
@@ -305,109 +358,6 @@ function EntityTable({ filterParams }) {
   )
 }
 
-function TopicTimeline({ filterParams }) {
-  const [selectedTopics, setSelectedTopics] = useState([
-    'POLITIKA', 'EU_INTEGRACIJE', 'KOSOVO', 'EKONOMIJA', 'PROTEST',
-  ])
-
-  const topicParam = selectedTopics.join(',')
-  const p = new URLSearchParams({ ...filterParams })
-  if (topicParam) p.set('topics', topicParam)
-
-  const { data, isLoading } = useQuery({
-    queryKey: ['topics-timeline', JSON.stringify(filterParams), topicParam],
-    queryFn: () => api.get(`/topics/timeline?${p}`).then(r => r.data),
-    enabled: selectedTopics.length > 0,
-  })
-
-  const chartData = useMemo(() => {
-    if (!data?.items?.length) return []
-    const byDate = {}
-    data.items.forEach(({ date, topic, count }) => {
-      if (!byDate[date]) byDate[date] = { date }
-      byDate[date][topic] = count
-    })
-    return Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date))
-  }, [data])
-
-  const toggleTopic = (t) =>
-    setSelectedTopics(prev =>
-      prev.includes(t) ? prev.filter(x => x !== t) : [...prev, t]
-    )
-
-  return (
-    <div className="rounded-xl border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
-      <div className="px-4 py-3 border-b" style={{ borderColor: 'var(--border)' }}>
-        <h2 className="text-sm font-medium mb-3" style={{ color: 'var(--text-primary)' }}>
-          Tematski trendovi po danu
-        </h2>
-        <div className="flex flex-wrap gap-1.5">
-          {ALL_TOPICS.map((t, i) => {
-            const active = selectedTopics.includes(t)
-            const color = TOPIC_COLORS[i % TOPIC_COLORS.length]
-            return (
-              <button key={t} onClick={() => toggleTopic(t)}
-                className="px-2 py-0.5 rounded text-xs border transition-all"
-                style={{
-                  borderColor: active ? color : 'var(--border)',
-                  color: active ? color : 'var(--text-muted)',
-                  background: active ? `${color}18` : 'transparent',
-                }}>
-                {TOPIC_LABELS[t]}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      <div className="p-4">
-        {isLoading ? (
-          <div className="h-64 flex items-center justify-center text-sm" style={{ color: 'var(--text-muted)' }}>
-            Učitavanje...
-          </div>
-        ) : chartData.length === 0 ? (
-          <div className="h-64 flex items-center justify-center text-sm" style={{ color: 'var(--text-muted)' }}>
-            Nema podataka za izabrani period i teme
-          </div>
-        ) : (
-          <ResponsiveContainer width="100%" height={280}>
-            <AreaChart data={chartData} margin={{ left: 0, right: 8 }}>
-              <XAxis dataKey="date"
-                tick={{ fontSize: 10, fill: 'var(--text-muted)' }}
-                tickFormatter={d => d.slice(5)}
-                interval="preserveStartEnd"
-              />
-              <YAxis tick={{ fontSize: 10, fill: 'var(--text-muted)' }} width={28} />
-              <Tooltip
-                contentStyle={{
-                  background: 'var(--bg-elevated)',
-                  border: '1px solid var(--border)',
-                  borderRadius: 8,
-                  fontSize: 11,
-                }}
-                labelStyle={{ color: 'var(--text-primary)', marginBottom: 4 }}
-                formatter={(val, name) => [val, TOPIC_LABELS[name] || name]}
-              />
-              {selectedTopics.map((t) => {
-                const idx = ALL_TOPICS.indexOf(t)
-                const color = TOPIC_COLORS[idx % TOPIC_COLORS.length]
-                return (
-                  <Area key={t} type="monotone" dataKey={t}
-                    stroke={color}
-                    fill={`${color}15`}
-                    strokeWidth={1.5}
-                    dot={false}
-                    connectNulls
-                  />
-                )
-              })}
-            </AreaChart>
-          </ResponsiveContainer>
-        )}
-      </div>
-    </div>
-  )
-}
 
 const CP_PER_PAGE = 5
 const FM_PER_PAGE = 5
@@ -583,6 +533,7 @@ function NarrativesPanel() {
   const qc = useQueryClient()
   const [showCreate, setShowCreate] = useState(false)
   const [form, setForm] = useState({ name: '', narrative_type: 'thematic', description: '' })
+  const [citeNarrative, setCiteNarrative] = useState(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['narratives'],
@@ -697,6 +648,12 @@ function NarrativesPanel() {
               <span className="text-sm tabular-nums shrink-0" style={{ color: 'var(--text-secondary)' }}>
                 {n.article_count} članaka
               </span>
+              <button onClick={() => setCiteNarrative(n)}
+                className="p-1 rounded border hover:bg-white/[0.04] shrink-0"
+                title="Citati iz članaka"
+                style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
+                <Quote size={12} />
+              </button>
               {canEdit && !n.is_validated && (
                 <button onClick={() => validateMutation.mutate(n.id)}
                   className="flex items-center gap-1 text-xs px-2 py-1 rounded border shrink-0 hover:bg-white/[0.04]"
@@ -727,6 +684,7 @@ function NarrativesPanel() {
       <div className="px-4 py-2 text-xs border-t" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
         Članci se mapiraju na <strong>validirane</strong> narative AI-jem tokom analize. Intenzitet se agregira dnevno u 06:00.
       </div>
+      {citeNarrative && <NarrativeCitationsModal narrative={citeNarrative} onClose={() => setCiteNarrative(null)} />}
     </div>
   )
 }
@@ -829,34 +787,281 @@ function NarrativeProposalsPanel() {
 const INTRADAY_COLORS = ['#6366f1', '#f59e0b', '#22c55e', '#ef4444', '#06b6d4', '#a855f7', '#ec4899', '#84cc16']
 
 function IntradayPanel({ filterParams }) {
-  const { data } = useQuery({
-    queryKey: ['intraday-narratives', filterParams],
-    queryFn: () => api.get(`/intraday?${filterParams}`).then(r => r.data),
+  const [tab, setTab] = useState('topics')
+
+  const { data: topicData } = useQuery({
+    queryKey: ['intraday-topics', filterParams],
+    queryFn: () => api.get(`/intraday?${new URLSearchParams(filterParams)}`).then(r => r.data),
   })
-  const topics = data?.topics || []
-  const hasData = data?.hourly?.some(h => topics.some(t => h[t]))
+  const { data: narrData } = useQuery({
+    queryKey: ['intraday-narratives', filterParams],
+    queryFn: () => api.get(`/intraday/narratives?${new URLSearchParams(filterParams)}`).then(r => r.data),
+  })
+
+  const topics = topicData?.topics || []
+  const topicsHasData = topicData?.hourly?.some(h => topics.some(t => h[t]))
+  const topNarr = narrData?.top_narratives || []
+  const narrHasData = topNarr.length > 0 && narrData?.by_hour?.some(h => topNarr.some(n => h[n]))
+  const DOW_LABELS = ["Ned", "Pon", "Uto", "Sre", "Čet", "Pet", "Sub"]
+  const heatmap = narrData?.heatmap || []
+  const maxHeat = Math.max(1, ...heatmap.map(h => h.count))
+
+  const TABS = [
+    { key: 'topics', label: 'Teme/sat' },
+    { key: 'narr_hour', label: 'Narativi/sat' },
+    { key: 'narr_dow', label: 'Dan u nedelji' },
+    { key: 'heatmap', label: 'Heatmap' },
+  ]
 
   return (
-    <div className="rounded-xl p-4 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
-      <h2 className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Intra-day distribucija (po satu)</h2>
-      <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
-        Kada se tokom dana objavljuju članci po temama — samo članci sa poznatim tačnim vremenom objave.
-      </p>
-      {!hasData ? (
-        <div className="py-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
-          Nema dovoljno članaka sa tačnim vremenom objave u izabranom periodu.
+    <div className="rounded-xl border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+      <div className="px-4 py-3 border-b flex items-center gap-2" style={{ borderColor: 'var(--border)' }}>
+        <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Intra-day distribucija</h2>
+        <div className="ml-auto flex gap-1">
+          {TABS.map(t => (
+            <button key={t.key} onClick={() => setTab(t.key)}
+              className="text-xs px-2.5 py-1 rounded-lg transition-colors"
+              style={{
+                background: tab === t.key ? 'var(--accent)' : 'var(--bg-elevated)',
+                color: tab === t.key ? 'white' : 'var(--text-muted)',
+              }}>
+              {t.label}
+            </button>
+          ))}
         </div>
-      ) : (
-        <ResponsiveContainer width="100%" height={240}>
-          <BarChart data={data.hourly} margin={{ left: 0, right: 8 }}>
-            <XAxis dataKey="hour" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
-            <YAxis tick={{ fontSize: 10, fill: 'var(--text-muted)' }} width={28} />
-            <Tooltip contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
-            {topics.map((t, i) => (
-              <Bar key={t} dataKey={t} stackId="a" fill={INTRADAY_COLORS[i % INTRADAY_COLORS.length]} />
-            ))}
-          </BarChart>
-        </ResponsiveContainer>
+      </div>
+
+      <div className="p-4">
+        <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+          Samo članci sa tačnim vremenom objave. Narativi: default prozor 30 dana.
+          {narrData?.intraday_note?.excluded_sources?.length > 0 &&
+            ` Isključeni: ${narrData.intraday_note.excluded_sources.join(', ')}.`}
+        </p>
+
+        {tab === 'topics' && (
+          !topicsHasData ? (
+            <div className="py-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
+              Nema dovoljno članaka sa tačnim vremenom objave u izabranom periodu.
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={topicData.hourly} margin={{ left: 0, right: 8 }}>
+                <XAxis dataKey="hour" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
+                <YAxis tick={{ fontSize: 10, fill: 'var(--text-muted)' }} width={28} />
+                <Tooltip contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
+                {topics.map((t, i) => (
+                  <Bar key={t} dataKey={t} stackId="a" fill={INTRADAY_COLORS[i % INTRADAY_COLORS.length]} />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          )
+        )}
+
+        {tab === 'narr_hour' && (
+          !narrHasData ? (
+            <div className="py-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
+              Nema narativa sa tačnim vremenom u periodu.
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={narrData.by_hour} margin={{ left: 0, right: 8 }}>
+                <XAxis dataKey="hour" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
+                <YAxis tick={{ fontSize: 10, fill: 'var(--text-muted)' }} width={28} />
+                <Tooltip contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
+                {topNarr.map((n, i) => (
+                  <Bar key={n} dataKey={n} stackId="a" fill={INTRADAY_COLORS[i % INTRADAY_COLORS.length]} />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          )
+        )}
+
+        {tab === 'narr_dow' && (
+          !narrHasData ? (
+            <div className="py-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
+              Nema narativa sa tačnim vremenom u periodu.
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={narrData.by_dow} margin={{ left: 0, right: 8 }}>
+                <XAxis dataKey="dow_label" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
+                <YAxis tick={{ fontSize: 10, fill: 'var(--text-muted)' }} width={28} />
+                <Tooltip contentStyle={{ background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12 }} />
+                {topNarr.map((n, i) => (
+                  <Bar key={n} dataKey={n} stackId="a" fill={INTRADAY_COLORS[i % INTRADAY_COLORS.length]} />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          )
+        )}
+
+        {tab === 'heatmap' && (
+          heatmap.length === 0 ? (
+            <div className="py-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
+              Nema narativa sa tačnim vremenom u periodu.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <div className="text-xs mb-1 flex" style={{ color: 'var(--text-muted)' }}>
+                <span className="w-8" />
+                {Array.from({length: 24}, (_, h) => (
+                  <span key={h} className="w-5 text-center" style={{ fontSize: 9 }}>{h}</span>
+                ))}
+              </div>
+              {[1,2,3,4,5,6,0].map(dow => (
+                <div key={dow} className="flex items-center mb-0.5">
+                  <span className="w-8 text-[10px] shrink-0" style={{ color: 'var(--text-muted)' }}>{DOW_LABELS[dow]}</span>
+                  {Array.from({length: 24}, (_, h) => {
+                    const cell = heatmap.find(c => c.hour === h && c.dow === dow)
+                    const cnt = cell?.count || 0
+                    const intensity = cnt / maxHeat
+                    return (
+                      <div key={h} className="w-5 h-4 rounded-sm mr-0.5"
+                        title={`${DOW_LABELS[dow]} ${h}:00 — ${cnt} narativnih čl.`}
+                        style={{
+                          background: cnt > 0 ? `rgba(99,102,241,${0.1 + intensity * 0.85})` : 'var(--bg-elevated)',
+                        }} />
+                    )
+                  })}
+                </div>
+              ))}
+              <div className="mt-2 flex items-center gap-2 text-[10px]" style={{ color: 'var(--text-muted)' }}>
+                <span>manje</span>
+                {[0.1, 0.3, 0.55, 0.75, 0.95].map(v => (
+                  <div key={v} className="w-4 h-3 rounded-sm" style={{ background: `rgba(99,102,241,${v})` }} />
+                ))}
+                <span>više</span>
+              </div>
+            </div>
+          )
+        )}
+      </div>
+    </div>
+  )
+}
+
+function NarrativeOriginPanel() {
+  const [selectedId, setSelectedId] = useState('')
+
+  const { data: narrList } = useQuery({
+    queryKey: ['narratives-list-for-origin'],
+    queryFn: () => api.get('/narratives').then(r => r.data.narratives),
+  })
+  const narratives = (narrList || []).filter(n => n.is_validated)
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['narrative-origin', selectedId],
+    queryFn: () => api.get(`/narratives/${selectedId}/origin`).then(r => r.data),
+    enabled: !!selectedId,
+  })
+
+  const fmtDT = (s) => {
+    if (!s) return '—'
+    const d = new Date(s)
+    return d.toLocaleString('sr-Latn', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+  }
+
+  const spread = data?.spread_timeline || []
+  const origin = data?.origin
+
+  return (
+    <div className="rounded-xl border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+      <div className="px-4 py-3 border-b flex items-center justify-between" style={{ borderColor: 'var(--border)' }}>
+        <div className="flex items-center gap-2">
+          <TrendingUp size={15} style={{ color: 'var(--accent)' }} />
+          <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+            Poreklo i širenje narativa
+          </h2>
+        </div>
+        <select
+          value={selectedId}
+          onChange={e => setSelectedId(e.target.value)}
+          className="text-sm rounded-lg border px-3 py-1.5"
+          style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border)', color: 'var(--text-primary)', minWidth: 220 }}>
+          <option value="">— Izaberi narativ —</option>
+          {narratives.map(n => (
+            <option key={n.id} value={n.id}>{n.name}</option>
+          ))}
+        </select>
+      </div>
+
+      {!selectedId && (
+        <div className="px-4 py-8 text-sm text-center" style={{ color: 'var(--text-muted)' }}>
+          Izaberi narativ da vidiš koji medij ga je prvi plasirao i kako se širio
+        </div>
+      )}
+
+      {selectedId && isLoading && (
+        <div className="px-4 py-8 text-sm text-center" style={{ color: 'var(--text-muted)' }}>Učitavanje…</div>
+      )}
+
+      {selectedId && !isLoading && data && (
+        <div className="p-4 space-y-4">
+          {origin?.first_source_id ? (
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-xs px-2.5 py-1 rounded-full font-medium"
+                style={{ background: 'var(--accent)', color: 'white' }}>
+                Prvi: {origin.first_source_id}
+              </span>
+              {origin.first_published_at && (
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                  {fmtDT(origin.first_published_at)}
+                  {!origin.has_exact_time && ' (datum bez sata)'}
+                </span>
+              )}
+              {origin.spread_hours != null && (
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                  · {Math.round(origin.spread_hours)}h do potpune pokrivenosti
+                </span>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+              {data.origin_note || 'Nema origin podataka za ovaj narativ.'}
+            </p>
+          )}
+
+          {spread.length > 0 && (
+            <div className="overflow-x-auto rounded-lg border" style={{ borderColor: 'var(--border)' }}>
+              <table className="w-full text-sm">
+                <thead style={{ background: 'var(--bg-elevated)' }}>
+                  <tr>
+                    {['#', 'Izvor', 'Prvi objavio', 'Tač. vreme', 'Članci'].map(h => (
+                      <th key={h} className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {spread.map((row, idx) => (
+                    <tr key={row.source_id} className="border-t" style={{ borderColor: 'var(--border)' }}>
+                      <td className="px-4 py-2 text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>{idx + 1}</td>
+                      <td className="px-4 py-2 font-mono text-xs font-medium" style={{ color: idx === 0 ? 'var(--accent)' : 'var(--text-primary)' }}>
+                        {row.source_id}{idx === 0 && <span className="ml-1 text-[9px] opacity-70">prvi</span>}
+                      </td>
+                      <td className="px-4 py-2 text-xs tabular-nums" style={{ color: 'var(--text-secondary)' }}>
+                        {fmtDT(row.first_published_at)}
+                      </td>
+                      <td className="px-4 py-2">
+                        {row.exact_time ? (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: '#22c55e22', color: '#22c55e' }}>✓</span>
+                        ) : (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ background: '#f59e0b22', color: '#f59e0b' }}>datum</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>{row.article_count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {data.origin_note && spread.length > 0 && (
+            <p className="text-xs italic flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>
+              <AlertTriangle size={11} style={{ color: '#f59e0b' }} /> {data.origin_note}
+            </p>
+          )}
+        </div>
       )}
     </div>
   )
@@ -879,6 +1084,7 @@ export default function Narratives() {
 
       <NarrativeProposalsPanel />
       <NarrativesPanel />
+      <NarrativeOriginPanel />
       <IntradayPanel filterParams={filterParams} />
       <EntityTable filterParams={filterParams} />
     </div>

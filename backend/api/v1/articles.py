@@ -43,6 +43,7 @@ async def list_articles(
     topic: Optional[str] = Query(default=None),
     entity_id: Optional[int] = Query(default=None),
     entity_sentiment: Optional[str] = Query(default=None),  # positive|negative|neutral
+    sentiment: Optional[str] = Query(default=None),  # positive|negative|neutral|mixed — article-level
     narrative_id: Optional[int] = Query(default=None),
     framing_type_id: Optional[int] = Query(default=None),
     framing_proposal_id: Optional[int] = Query(default=None),
@@ -94,6 +95,8 @@ async def list_articles(
         elif entity_sentiment == "neutral":
             sub = sub.where(ArticleEntity.sentiment.between(-0.2, 0.2))
         q = q.where(Article.id.in_(sub))
+    if sentiment:
+        q = q.where(ArticleAnalysis.sentiment == sentiment)
     if narrative_id:
         sub = select(ArticleNarrative.article_id).where(ArticleNarrative.narrative_id == narrative_id)
         q = q.where(Article.id.in_(sub))

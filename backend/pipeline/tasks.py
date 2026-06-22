@@ -892,6 +892,125 @@ def detect_origin(window_days: int = 7):
     return result
 
 
+@celery.task(name="pipeline.tasks.detect_narrative_origin")
+def detect_narrative_origin(window_days: int = 14):
+    """
+    Narrative origin tracking: za svaki validirani narativ sa >= 2 izvora u prozoru,
+    ko je PRVI objavio i kako se sirilo.
+    Upisuje/azurira red u narrative_origin_tracking (UNIQUE narrative_id).
+    """
+    logger.info("detect_narrative_origin: pocinje")
+
+    import json as _json
+
+    async def _run():
+        pg = await asyncpg.connect(PG_DSN)
+        try:
+            narratives = await pg.fetch(
+                f"""
+                SELECT an.narrative_id, COUNT(DISTINCT a.source_id) AS coverage
+                FROM article_narratives an
+                JOIN articles a ON a.id = an.article_id
+                JOIN narratives n ON n.id = an.narrative_id
+                WHERE a.published_at >= NOW() - INTERVAL '{window_days} days'
+                  AND n.is_validated = TRUE
+                GROUP BY an.narrative_id
+                HAVING COUNT(DISTINCT a.source_id) >= 2
+                """
+            )
+            created = 0
+            for narr in narratives:
+                narrative_id = narr["narrative_id"]
+                # prvi clanak sa ovim narativom u prozoru
+                first = await pg.fetchrow(
+                    f"""
+                    SELECT a.id, a.source_id, a.published_at, COALESCE(s.has_timestamp_time, TRUE) AS exact
+                    FROM articles a
+                    JOIN article_narratives an ON an.article_id = a.id
+                    JOIN sources s ON s.source_id = a.source_id
+                    WHERE an.narrative_id = $1
+                      AND a.published_at >= NOW() - INTERVAL '{window_days} days'
+                    ORDER BY a.published_at ASC NULLS LAST
+                    LIMIT 1
+                    """,
+                    narrative_id,
+                )
+                if not first:
+                    continue
+                # spread: po izvoru, najraniji clanak u prozoru i count
+                spread_rows = await pg.fetch(
+                    f"""
+                    SELECT a.source_id,
+                           MIN(a.published_at) AS first_published_at,
+                           COUNT(*) AS article_count,
+                           BOOL_AND(COALESCE(s.has_timestamp_time, TRUE)) AS exact_time
+                    FROM articles a
+                    JOIN article_narratives an ON an.article_id = a.id
+                    JOIN sources s ON s.source_id = a.source_id
+                    WHERE an.narrative_id = $1
+                      AND a.published_at >= NOW() - INTERVAL '{window_days} days'
+                    GROUP BY a.source_id
+                    ORDER BY first_published_at ASC NULLS LAST
+                    """,
+                    narrative_id,
+                )
+                spread = [
+                    {
+                        "source_id": r["source_id"],
+                        "first_published_at": r["first_published_at"].isoformat() if r["first_published_at"] else None,
+                        "article_count": r["article_count"],
+                        "exact_time": bool(r["exact_time"]),
+                    }
+                    for r in spread_rows
+                ]
+                # spread_hours — samo iz exact-time izvora
+                spread_h = await pg.fetchval(
+                    f"""
+                    SELECT EXTRACT(EPOCH FROM (MAX(a.published_at) - MIN(a.published_at)))/3600.0
+                    FROM articles a
+                    JOIN article_narratives an ON an.article_id = a.id
+                    JOIN sources s ON s.source_id = a.source_id
+                    WHERE an.narrative_id = $1
+                      AND a.published_at >= NOW() - INTERVAL '{window_days} days'
+                      AND COALESCE(s.has_timestamp_time, TRUE) = TRUE
+                    """,
+                    narrative_id,
+                )
+                await pg.execute(
+                    """
+                    INSERT INTO narrative_origin_tracking
+                        (narrative_id, first_source_id, first_published_at, has_exact_time,
+                         total_sources, spread_hours, spread, window_days, computed_at)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,NOW())
+                    ON CONFLICT (narrative_id) DO UPDATE SET
+                        first_source_id = EXCLUDED.first_source_id,
+                        first_published_at = EXCLUDED.first_published_at,
+                        has_exact_time = EXCLUDED.has_exact_time,
+                        total_sources = EXCLUDED.total_sources,
+                        spread_hours = EXCLUDED.spread_hours,
+                        spread = EXCLUDED.spread,
+                        window_days = EXCLUDED.window_days,
+                        computed_at = NOW()
+                    """,
+                    narrative_id,
+                    first["source_id"],
+                    first["published_at"],
+                    bool(first["exact"]),
+                    int(narr["coverage"]),
+                    float(spread_h) if spread_h is not None else None,
+                    _json.dumps(spread),
+                    window_days,
+                )
+                created += 1
+            return {"narratives_tracked": created}
+        finally:
+            await pg.close()
+
+    result = _run_async(_run())
+    logger.info("detect_narrative_origin zavrsen: %s", result)
+    return result
+
+
 @celery.task(name="pipeline.tasks.detect_coordination")
 def detect_coordination():
     """
@@ -1342,7 +1461,7 @@ def generate_morning_summary(self, target_date: str = None):
     Pokrece se svako jutro u 07:00.
     """
     import asyncio
-    from datetime import date
+    from datetime import date, timedelta
 
     if not settings.ANTHROPIC_API_KEY:
         return {"status": "skipped", "reason": "no_api_key"}

@@ -72,6 +72,11 @@ celery.conf.beat_schedule = {
         "task": "pipeline.tasks.detect_origin",
         "schedule": crontab(hour=3, minute=10),
     },
+    # Narrative origin tracking — ko je prvi plasirao narativ
+    "detect-narrative-origin": {
+        "task": "pipeline.tasks.detect_narrative_origin",
+        "schedule": crontab(hour=3, minute=20),
+    },
     # Detekcija alerta u 08:00 (posle jutarnjeg scraping runda)
     "detect-alerts": {
         "task": "pipeline.tasks.detect_alerts",

@@ -128,6 +128,105 @@ async def update_narrative(
     return {"id": n.id, "is_validated": n.is_validated}
 
 
+@router.get("/{narrative_id}/origin")
+async def narrative_origin(
+    narrative_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Poreklo i širenje narativa kroz medije.
+
+    Podaci se pune noćno taskoom detect_narrative_origin.
+    Ako task još nije pokrenuo, vraća prazno.
+    """
+    from sqlalchemy import text
+    n = await db.get(Narrative, narrative_id)
+    if not n:
+        raise HTTPException(status_code=404, detail="Narativ nije pronađen")
+
+    row = (await db.execute(
+        text("SELECT * FROM narrative_origin_tracking WHERE narrative_id = :nid"),
+        {"nid": narrative_id},
+    )).first()
+
+    if not row:
+        return {
+            "narrative_id": narrative_id,
+            "narrative_name": n.name,
+            "origin": None,
+            "spread_timeline": [],
+            "origin_note": "Origin podaci nisu dostupni — task još nije pokrenuo ili narativ nema dovoljno pokrivenosti.",
+        }
+
+    import json as _json
+    spread = row.spread or []
+    if isinstance(spread, str):
+        spread = _json.loads(spread)
+
+    has_exact = bool(row.has_exact_time)
+    note = None
+    if not has_exact:
+        note = "Napomena: prvi zabeleženi izvor nema tačno vreme objave (datum bez sata) — vremenski redosled je indikativan."
+
+    return {
+        "narrative_id": narrative_id,
+        "narrative_name": n.name,
+        "origin": {
+            "first_source_id": row.first_source_id,
+            "first_published_at": row.first_published_at.isoformat() if row.first_published_at else None,
+            "has_exact_time": has_exact,
+            "total_sources": row.total_sources,
+            "spread_hours": float(row.spread_hours) if row.spread_hours is not None else None,
+            "window_days": row.window_days,
+            "computed_at": row.computed_at.isoformat() if row.computed_at else None,
+        },
+        "spread_timeline": spread,
+        "origin_note": note,
+    }
+
+
+@router.get("/{narrative_id}/citations")
+async def narrative_citations(
+    narrative_id: int,
+    limit: int = Query(default=30, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    from models.articles import Article
+    from models.sources import Source
+    n = await db.get(Narrative, narrative_id)
+    if not n:
+        raise HTTPException(status_code=404, detail="Narativ nije pronađen")
+
+    rows = (await db.execute(
+        select(ArticleNarrative, Article, Source)
+        .join(Article, Article.id == ArticleNarrative.article_id)
+        .join(Source, Source.source_id == Article.source_id)
+        .where(ArticleNarrative.narrative_id == narrative_id)
+        .where(ArticleNarrative.supporting_text.isnot(None))
+        .order_by(desc(Article.published_at))
+        .limit(limit)
+    )).all()
+
+    return {
+        "narrative_id": narrative_id,
+        "narrative_name": n.name,
+        "citations": [
+            {
+                "article_id": an.article_id,
+                "source_id": a.source_id,
+                "source_name": s.name,
+                "title": a.title,
+                "published_at": a.published_at,
+                "url": a.url,
+                "supporting_text": an.supporting_text,
+                "confidence": an.confidence,
+            }
+            for an, a, s in rows
+        ],
+    }
+
+
 @router.get("/proposals")
 async def list_narrative_proposals(
     status: str = Query(default="pending"),

@@ -424,7 +424,7 @@ async def intraday_distribution(
         SELECT EXTRACT(HOUR FROM a.published_at)::int AS hour, aa.primary_topic AS topic, COUNT(*) AS c
         FROM article_analysis aa JOIN articles a ON a.id=aa.article_id
         JOIN sources s ON s.source_id=a.source_id
-        WHERE COALESCE(s.has_timestamp_time, TRUE) = TRUE AND aa.primary_topic IS NOT NULL {df}
+        WHERE COALESCE(s.has_timestamp_time, TRUE) = TRUE AND aa.primary_topic IS NOT NULL AND a.published_at IS NOT NULL {df}
         GROUP BY hour, aa.primary_topic
     """), params)).all()
 
@@ -444,6 +444,118 @@ async def intraday_distribution(
         "intraday_note": {
             "excluded_sources": excluded,
             "reason": "Prikazuju se samo članci sa tačnim vremenom objave (published_at uključuje sat).",
+        },
+    }
+
+
+@router.get("/intraday/narratives")
+async def intraday_narratives(
+    date_from: Optional[str] = Query(default=None),
+    date_to: Optional[str] = Query(default=None),
+    source_ids: Optional[str] = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Distribucija narativa po satu dana, danu u nedelji i heatmap (dan × sat).
+
+    Default: poslednjih 30 dana ako nema date filtera (širi prozor = pouzdaniji uzorak).
+    Isključuje izvore bez tačnog vremena objave (has_timestamp_time=FALSE).
+    """
+    from sqlalchemy import text
+    from api.deps import parse_date
+    params = {}
+    df = ""
+    if date_from:
+        df += " AND a.published_at >= :date_from"; params["date_from"] = parse_date(date_from)
+    if date_to:
+        df += " AND a.published_at <= :date_to"; params["date_to"] = parse_date(date_to)
+    if not date_from and not date_to:
+        df += " AND a.published_at >= NOW() - INTERVAL '30 days'"
+    src_ids = _parse_source_ids(source_ids)
+    if src_ids:
+        df += " AND a.source_id = ANY(:source_ids)"; params["source_ids"] = src_ids
+
+    excluded = [r.source_id for r in (await db.execute(text(
+        "SELECT source_id FROM sources WHERE COALESCE(has_timestamp_time, TRUE) = FALSE"
+    ))).all()]
+
+    # Top 5 narativa po učestalosti u periodu
+    top_rows = (await db.execute(text(f"""
+        SELECT n.name AS narrative_name, COUNT(*) AS c
+        FROM article_narratives an
+        JOIN articles a ON a.id = an.article_id
+        JOIN narratives n ON n.id = an.narrative_id
+        JOIN sources s ON s.source_id = a.source_id
+        WHERE n.is_validated = TRUE
+          AND COALESCE(s.has_timestamp_time, TRUE) = TRUE {df}
+        GROUP BY n.name ORDER BY c DESC LIMIT 5
+    """), params)).all()
+    top_narratives = [r.narrative_name for r in top_rows]
+
+    if not top_narratives:
+        return {
+            "by_hour": [], "by_dow": [], "heatmap": [],
+            "top_narratives": [],
+            "intraday_note": {"excluded_sources": excluded, "reason": "Nema validiranih narativa sa tačnim vremenom u izabranom periodu."},
+        }
+
+    # Po satu (0-23)
+    hour_rows = (await db.execute(text(f"""
+        SELECT EXTRACT(HOUR FROM a.published_at)::int AS hour,
+               n.name AS narrative_name, COUNT(*) AS c
+        FROM article_narratives an
+        JOIN articles a ON a.id = an.article_id
+        JOIN narratives n ON n.id = an.narrative_id
+        JOIN sources s ON s.source_id = a.source_id
+        WHERE n.is_validated = TRUE AND n.name = ANY(:top_narrs)
+          AND COALESCE(s.has_timestamp_time, TRUE) = TRUE AND a.published_at IS NOT NULL {df}
+        GROUP BY hour, n.name
+    """), {**params, "top_narrs": top_narratives})).all()
+
+    hour_buckets = {h: {"hour": h} for h in range(24)}
+    for r in hour_rows:
+        hour_buckets[r.hour][r.narrative_name] = hour_buckets[r.hour].get(r.narrative_name, 0) + r.c
+
+    # Po danu u nedelji (0=ned, 1=pon, ..., 6=sub)
+    DOW_LABELS = {0: "Ned", 1: "Pon", 2: "Uto", 3: "Sre", 4: "Čet", 5: "Pet", 6: "Sub"}
+    dow_rows = (await db.execute(text(f"""
+        SELECT EXTRACT(DOW FROM a.published_at)::int AS dow,
+               n.name AS narrative_name, COUNT(*) AS c
+        FROM article_narratives an
+        JOIN articles a ON a.id = an.article_id
+        JOIN narratives n ON n.id = an.narrative_id
+        JOIN sources s ON s.source_id = a.source_id
+        WHERE n.is_validated = TRUE AND n.name = ANY(:top_narrs)
+          AND COALESCE(s.has_timestamp_time, TRUE) = TRUE AND a.published_at IS NOT NULL {df}
+        GROUP BY dow, n.name
+    """), {**params, "top_narrs": top_narratives})).all()
+
+    dow_buckets = {d: {"dow": d, "dow_label": DOW_LABELS[d]} for d in range(7)}
+    for r in dow_rows:
+        dow_buckets[r.dow][r.narrative_name] = dow_buckets[r.dow].get(r.narrative_name, 0) + r.c
+
+    # Heatmap: ukupno (sat × dan) — sve narative zajedno
+    heat_rows = (await db.execute(text(f"""
+        SELECT EXTRACT(HOUR FROM a.published_at)::int AS hour,
+               EXTRACT(DOW FROM a.published_at)::int AS dow,
+               COUNT(*) AS c
+        FROM article_narratives an
+        JOIN articles a ON a.id = an.article_id
+        JOIN narratives n ON n.id = an.narrative_id
+        JOIN sources s ON s.source_id = a.source_id
+        WHERE n.is_validated = TRUE
+          AND COALESCE(s.has_timestamp_time, TRUE) = TRUE AND a.published_at IS NOT NULL {df}
+        GROUP BY hour, dow
+    """), params)).all()
+
+    return {
+        "by_hour": [hour_buckets[h] for h in range(24)],
+        "by_dow": [dow_buckets[d] for d in range(7)],
+        "heatmap": [{"hour": r.hour, "dow": r.dow, "count": int(r.c)} for r in heat_rows],
+        "top_narratives": top_narratives,
+        "intraday_note": {
+            "excluded_sources": excluded,
+            "reason": "Prikazuju se samo članci sa tačnim vremenom objave. Default prozor: 30 dana.",
         },
     }
 

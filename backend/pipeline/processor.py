@@ -99,6 +99,11 @@ async def _save_analysis(pg: asyncpg.Connection, article_id: int, data: dict) ->
         propaganda_targets_json = _json.dumps(propaganda_targets)
     else:
         propaganda_targets_json = "[]"
+    geopolitical_sentiment = data.get("geopolitical_sentiment") or []
+    if isinstance(geopolitical_sentiment, list):
+        geopolitical_sentiment_json = _json.dumps(geopolitical_sentiment)
+    else:
+        geopolitical_sentiment_json = "[]"
 
     await pg.execute(
         """
@@ -110,6 +115,7 @@ async def _save_analysis(pg: asyncpg.Connection, article_id: int, data: dict) ->
             topic_explanation, political_explanation, value_explanation,
             populist_framing, populist_confidence,
             propaganda_techniques, propaganda_confidence, propaganda_targets,
+            geopolitical_sentiment,
             analysis_confidence,
             model_used, analysis_version, analyzed_at
         ) VALUES (
@@ -120,8 +126,9 @@ async def _save_analysis(pg: asyncpg.Connection, article_id: int, data: dict) ->
             $10, $11, $12,
             $13, $14,
             $15::jsonb, $16, $17::jsonb,
-            $18,
-            $19, $20, $21
+            $18::jsonb,
+            $19,
+            $20, $21, $22
         )
         ON CONFLICT (article_id) DO UPDATE SET
             topics = EXCLUDED.topics,
@@ -140,6 +147,7 @@ async def _save_analysis(pg: asyncpg.Connection, article_id: int, data: dict) ->
             propaganda_techniques = EXCLUDED.propaganda_techniques,
             propaganda_confidence = EXCLUDED.propaganda_confidence,
             propaganda_targets = EXCLUDED.propaganda_targets,
+            geopolitical_sentiment = EXCLUDED.geopolitical_sentiment,
             analysis_confidence = EXCLUDED.analysis_confidence,
             model_used = EXCLUDED.model_used,
             analysis_version = EXCLUDED.analysis_version,
@@ -162,6 +170,7 @@ async def _save_analysis(pg: asyncpg.Connection, article_id: int, data: dict) ->
         propaganda_techniques_json,
         data.get("propaganda_confidence"),
         propaganda_targets_json,
+        geopolitical_sentiment_json,
         data.get("analysis_confidence"),
         settings.ANTHROPIC_MODEL,
         PIPELINE_VERSION,

@@ -148,7 +148,7 @@ function SimilarArticles({ articleId }) {
   const navigate = useNavigate()
   const { data } = useQuery({
     queryKey: ['similar', articleId],
-    queryFn: () => api.get(`/coordination/similar/${articleId}?limit=5`).then(r => r.data),
+    queryFn: () => api.get(`/coordination/similar/${articleId}?limit=30`).then(r => r.data),
     retry: false,
   })
   const items = data?.similar?.filter(s => s.similarity_score >= 0.5) || []
@@ -168,35 +168,37 @@ function SimilarArticles({ articleId }) {
     <div className="rounded-xl border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
       <div className="px-3 py-2 border-b flex items-center gap-2" style={{ borderColor: 'var(--border)' }}>
         <Copy size={12} style={{ color: '#f59e0b' }} />
-        <span className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>Slični članci — vremenski</span>
+        <span className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>Poreklo priče — ko je objavio prvi</span>
         <span className="text-xs px-1.5 py-0.5 rounded-full ml-auto" style={{ background: 'rgba(245,158,11,0.15)', color: '#fbbf24' }}>
-          {items.length}
+          {items.length} medija
         </span>
       </div>
 
       {dated.length > 0 && (
         <div className="px-4 pt-6 pb-2">
           <div className="relative h-12">
-            {/* osa */}
             <div className="absolute left-0 right-0 top-5 h-px" style={{ background: 'var(--border)' }} />
             {dated.map((s, i) => (
               <div key={s.id} onClick={() => navigate(`/articles/${s.id}`)}
-                title={`${s.source_id} · ${Math.round(s.similarity_score * 100)}% · ${fmtFull(s)}\n${s.title}`}
+                title={`${i === 0 ? '★ PRVI ' : ''}${s.source_id} · ${Math.round(s.similarity_score * 100)}% · ${fmtFull(s)}\n${s.title}`}
                 className="absolute -translate-x-1/2 cursor-pointer group"
                 style={{ left: `${pos(s.t)}%`, top: 0 }}>
                 <div className="flex flex-col items-center gap-0.5">
-                  <span className="text-[9px] tabular-nums leading-none" style={{ color: '#f59e0b' }}>
-                    {Math.round(s.similarity_score * 100)}%
+                  <span className="text-[9px] tabular-nums leading-none" style={{ color: i === 0 ? 'var(--accent)' : '#f59e0b' }}>
+                    {i === 0 ? '1.' : `${i + 1}.`}
                   </span>
                   <div className="rounded-full border-2 transition-transform group-hover:scale-125"
                     style={{
-                      width: 11, height: 11,
-                      background: '#f59e0b',
-                      opacity: 0.4 + 0.6 * s.similarity_score,
+                      width: i === 0 ? 13 : 11, height: i === 0 ? 13 : 11,
+                      background: i === 0 ? 'var(--accent)' : '#f59e0b',
+                      opacity: i === 0 ? 1 : 0.4 + 0.6 * s.similarity_score,
                       borderColor: 'var(--bg-surface)',
                     }} />
-                  <span className="text-[8px] leading-none mt-0.5 px-1 rounded"
-                    style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
+                  <span className="text-[8px] leading-none mt-0.5 px-1 rounded font-medium"
+                    style={{
+                      background: i === 0 ? 'var(--accent)' : 'var(--bg-elevated)',
+                      color: i === 0 ? 'white' : 'var(--text-secondary)',
+                    }}>
                     {s.source_id}
                   </span>
                 </div>

@@ -272,29 +272,37 @@ export default function Methodology() {
           </Section>
 
           <Section id="origin" icon={Clock} title="10. Origin tracking">
-            <p>Prati <strong>ko je prvi objavio</strong> temu i kako se širila kroz medijski prostor (broj izvora, vreme širenja).</p>
+            <p>Prati <strong>ko je prvi objavio</strong> temu ili narativ i kako se širio kroz medijski prostor (broj izvora, vreme širenja).</p>
+            <div className="space-y-2">
+              <Defn term="Origin tema (detect_origin)">Noćni task koji identifikuje koji izvor je prvi objavio određenu temu u zadatom prozoru. Prikazuje se na stranici svakog članka kao „Poreklo priče — ko je objavio prvi" (hronološki timeline s numerisanim pozicijama, prvi izvor istaknuto).</Defn>
+              <Defn term="Origin narativa (detect_narrative_origin)">Novi noćni task koji prati kojim redosledom je svaki <strong>validovani narativ</strong> prošao kroz izvore. Čuva se u tabeli <code>narrative_origin_tracking</code>; dostupno na stranici Narativi → dropdown izaberi narativ → panel porekla. Zahteva ≥2 izvora u 14-dnevnom prozoru.</Defn>
+            </div>
             <Note kind="info">
               Svi aktivni izvori (uključujući RTS i Tanjug) imaju tačne timestamps od juna 2026. — RTS putem RSS feed-a, Tanjug putem <code>article:published_time</code> meta taga. Ako je <code>published_at</code> nepoznat (NULL za starije arhivske članke), redosled unutar dana se <strong>ne tvrdi</strong> i UI to eksplicitno označava.
             </Note>
-            <p className="text-xs" style={{ color: C.muted }}>Stariji RTS i Tanjug članci (pre juna 2026.) imaju NULL published_at i isključeni su iz temporalne analize.</p>
+            <p className="text-xs" style={{ color: C.muted }}>Stariji RTS i Tanjug članci (pre juna 2026.) imaju NULL published_at i isključeni su iz temporalne analize. <code>detect_narrative_origin</code> se pokreće noćno u 03:20.</p>
           </Section>
 
           <Section id="intraday" icon={Sunrise} title="11. Intra-day analiza">
-            <p>Distribucija tema kroz delove dana (jutarnji/podnevni/večernji ciklus plasiranja). Članci bez <code>published_at</code> (starija arhiva RTS/Tanjug) se ne prikazuju u ovoj analizi.</p>
+            <p>Distribucija tema i narativa kroz delove dana i dane u nedelji. Prikazuje se raspodela po satu (0–23), danu u nedelji (pon–ned) i heatmap (sat × dan). Cilj: identifikovati <strong>strategiju plasiranja narativa</strong> — da li se određeni narativi pojavljuju konsistentno u istim vremenskim prozorima. Članci bez tačnog <code>published_at</code> (RTS, Tanjug — datum bez vremena) se isključuju. Endpoint <code>/intraday/narratives</code> koristi 30-dnevni prozor po difoultu.</p>
+            <Note kind="meth">Dnevni AI pregled (07:00) uključuje raspodelu narativa po delovima dana (jutro/podne/veče/noć) samo za izvore sa tačnim vremenom — navedeno u sekciji „Narativi po delovima dana".</Note>
           </Section>
 
           <Section id="politicka" icon={Landmark} title="12. Politička analiza i propaganda detekcija">
             <p>Specijalizovani objektiv nad istim podacima — kako se politički akteri tretiraju i koje narative projektuju.</p>
             <div className="space-y-2">
               <Defn term="Narativni akteri">Politički akteri (iz NER-a) sa <strong>entitetskim sentimentom</strong> (kako je svaki akter specifično pominjut, −1…+1), brojem pominjanja i distribucijom po alignment-u izvora (pro-vlada / opozicija / neutralno).</Defn>
-              <Defn term="Propaganda detekcija (eksperimentalna)">
-                AI detektuje propagandne tehnike po tekstu: DEMONIZACIJA, DEZINFORMACIJA, CONSPIRACY_THEORY, FEAR_APPEAL, FALSE_DICHOTOMY, SCAPEGOATING, DEFAMATION, SMEAR_CAMPAIGN, WHATABOUTISM, CHERRY_PICKING, EMOTIONAL_APPEAL. Vraća listu tehnika, confidence (0–1) i mete (propaganda_targets). Popunjava se re-analizom novih i starih članaka.
+              <Defn term="Propaganda detekcija (proširena)">
+                AI detektuje propagandne tehnike po tekstu: DEMONIZACIJA, DEZINFORMACIJA, CONSPIRACY_THEORY, FEAR_APPEAL, FALSE_DICHOTOMY, SCAPEGOATING, DEFAMATION, SMEAR_CAMPAIGN, WHATABOUTISM, CHERRY_PICKING, EMOTIONAL_APPEAL, <strong>FAR_RIGHT_NARRATIVE, ULTRA_RIGHT_NARRATIVE</strong>. Vraća listu tehnika, confidence (0–1), mete (<code>propaganda_targets</code> sa kategorijom: civil_society|opposition|students|media|other) i novu kolonu <code>geopolitical_sentiment</code>.
+              </Defn>
+              <Defn term="Geopolitički sentiment">
+                Poseban izlaz AI analize (ne ukupni sentiment teksta): kako tekst prikazuje svaki od ključnih geopolitičkih aktera — EU, Rusija, SAD, Kina, NATO, Zapad — na skali −1…+1. Agregira se po akteru u <code>/political/geopolitical</code> endpointu. Popunjava se samo na novim člancima (stari nemaju ovu kolonu).
               </Defn>
             </div>
             <Note kind="warn">
               <strong>Propaganda detekcija je eksperimentalna</strong> — model detektuje površinski/tekstualne signale, ne intenciju autora. Lažno pozitivni su mogući. Interpretacija nalaza ostaje isključivo na istraživaču. Korelacija sa izvorom ≠ dokaz koordinirane propagandne kampanje.
             </Note>
-            <p className="text-xs" style={{ color: C.muted }}>Napomena: raniji „narod vs. elite" (populistički meta-framing) je uklonjen iz analize jer je bio nedovoljno precizan; može se vratiti kasnije ako se definiše operativno mernije.</p>
+            <p className="text-xs" style={{ color: C.muted }}>Napomena: raniji „narod vs. elite" (populistički meta-framing) je uklonjen iz analize jer je bio nedovoljno precizan.</p>
             <p><strong>Akteri kao ulaz u korpus</strong> — klikom na aktera (ili na polaritet pozitivno/neutralno/negativno) otvara se filtrirana lista članaka u kojima je taj akter tako prikazan, čime se nalaz uvek može vratiti na izvorni tekst.</p>
           </Section>
 

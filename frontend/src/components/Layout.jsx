@@ -1,9 +1,59 @@
+import { useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { LayoutDashboard, Newspaper, Radio, TrendingUp, LogOut, Activity, Settings, Bell, Layers, Hash, Zap, Share2, Landmark, BookOpen, ClipboardList } from 'lucide-react'
-import { useQuery } from '@tanstack/react-query'
+import { LayoutDashboard, Newspaper, Radio, TrendingUp, LogOut, Activity, Settings, Bell, Layers, Hash, Zap, Share2, Landmark, BookOpen, ClipboardList, KeyRound, X } from 'lucide-react'
+import { useQuery, useMutation } from '@tanstack/react-query'
 import { useAuth } from '../store/auth'
 import GlobalFilters from './GlobalFilters'
 import api from '../lib/api'
+
+function ChangePasswordModal({ onClose }) {
+  const [cur, setCur] = useState('')
+  const [next, setNext] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const mutation = useMutation({
+    mutationFn: () => api.put('/auth/me/password', { current_password: cur, new_password: next }),
+    onSuccess: onClose,
+  })
+  const err = mutation.error?.response?.data?.detail
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.6)' }} onClick={onClose}>
+      <div className="rounded-xl border w-full max-w-sm p-5 flex flex-col gap-3"
+        style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }} onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Promena lozinke</span>
+          <button onClick={onClose}><X size={15} style={{ color: 'var(--text-muted)' }} /></button>
+        </div>
+        {['Trenutna lozinka', 'Nova lozinka', 'Potvrdi novu'].map((label, i) => (
+          <div key={label}>
+            <label className="text-xs mb-1 block" style={{ color: 'var(--text-muted)' }}>{label}</label>
+            <input type="password"
+              value={i === 0 ? cur : i === 1 ? next : confirm}
+              onChange={e => { if (i === 0) setCur(e.target.value); else if (i === 1) setNext(e.target.value); else setConfirm(e.target.value) }}
+              className="w-full px-3 py-2 rounded-lg text-sm border outline-none"
+              style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border)', color: 'var(--text-primary)' }}
+            />
+          </div>
+        ))}
+        {err && <p className="text-xs" style={{ color: '#f87171' }}>{err === 'WRONG_CURRENT_PASSWORD' ? 'Pogrešna trenutna lozinka' : err === 'PASSWORD_TOO_SHORT' ? 'Nova lozinka mora imati ≥8 znakova' : err}</p>}
+        {mutation.isSuccess && <p className="text-xs" style={{ color: '#22c55e' }}>Lozinka promenjena!</p>}
+        <button
+          onClick={() => {
+            if (next.length < 8) { return }
+            if (next !== confirm) { return }
+            mutation.mutate()
+          }}
+          disabled={mutation.isPending || !cur || next.length < 8 || next !== confirm}
+          className="py-2 rounded-lg text-sm border transition-colors disabled:opacity-40"
+          style={{ borderColor: 'var(--accent)', color: 'var(--accent)', background: 'rgba(99,102,241,0.1)' }}>
+          {mutation.isPending ? 'Čuvam...' : 'Sačuvaj'}
+        </button>
+        {next && confirm && next !== confirm && (
+          <p className="text-xs -mt-2" style={{ color: '#f59e0b' }}>Lozinke se ne podudaraju</p>
+        )}
+      </div>
+    </div>
+  )
+}
 
 const nav = [
   { to: '/',             icon: LayoutDashboard, label: 'Dashboard' },
@@ -86,12 +136,13 @@ export default function Layout() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const handleLogout = () => { logout(); navigate('/login') }
+  const [showChangePwd, setShowChangePwd] = useState(false)
 
   return (
     <div className="flex h-screen" style={{ background: 'var(--bg-base)' }}>
       <aside className="w-56 flex flex-col border-r shrink-0" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
         <div className="px-5 py-4 border-b" style={{ borderColor: 'var(--border)' }}>
-          <div className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>MediaScope</div>
+          <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '.12em', color: 'var(--text-primary)', textTransform: 'uppercase' }}>MEDIA<span style={{ opacity: .4, fontWeight: 400 }}>SCOPE</span></div>
           <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>SHARE Fondacija</div>
         </div>
 
@@ -129,13 +180,21 @@ export default function Layout() {
         <PipelineStatus />
 
         <div className="px-4 py-3 border-t" style={{ borderColor: 'var(--border)' }}>
-          <div className="text-xs mb-1 truncate" style={{ color: 'var(--text-muted)' }}>{user?.email}</div>
-          <button onClick={handleLogout}
-            className="flex items-center gap-2 text-xs hover:text-white transition-colors"
-            style={{ color: 'var(--text-secondary)' }}>
-            <LogOut size={13} /> Odjavi se
-          </button>
+          <div className="text-xs mb-1.5 truncate" style={{ color: 'var(--text-muted)' }}>{user?.email}</div>
+          <div className="flex flex-col gap-1">
+            <button onClick={() => setShowChangePwd(true)}
+              className="flex items-center gap-2 text-xs hover:text-white transition-colors"
+              style={{ color: 'var(--text-secondary)' }}>
+              <KeyRound size={13} /> Promena lozinke
+            </button>
+            <button onClick={handleLogout}
+              className="flex items-center gap-2 text-xs hover:text-white transition-colors"
+              style={{ color: 'var(--text-secondary)' }}>
+              <LogOut size={13} /> Odjavi se
+            </button>
+          </div>
         </div>
+        {showChangePwd && <ChangePasswordModal onClose={() => setShowChangePwd(false)} />}
       </aside>
 
       <main className="flex-1 overflow-hidden flex flex-col">

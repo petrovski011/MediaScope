@@ -69,6 +69,9 @@ class ArticleAnalysis(Base):
     propaganda_targets = Column(JSONB, nullable=True)
     analysis_confidence = Column(Float, nullable=True)
 
+    # Geopoliticki sentiment (A2)
+    geopolitical_sentiment = Column(JSONB, nullable=True)
+
 
 class Entity(Base):
     __tablename__ = "entities"

@@ -122,5 +122,23 @@ async def register_first_admin(
     )
     db.add(user)
     await db.commit()
-    await db.refresh(user)
-    return {"id": user.id, "email": user.email, "role": user.role}
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.put("/me/password")
+async def change_my_password(
+    req: ChangePasswordRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not _verify(req.current_password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="WRONG_CURRENT_PASSWORD")
+    if len(req.new_password) < 8:
+        raise HTTPException(status_code=400, detail="PASSWORD_TOO_SHORT")
+    current_user.hashed_password = _hash(req.new_password)
+    await db.commit()
+    return {"changed": True}

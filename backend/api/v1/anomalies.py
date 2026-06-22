@@ -18,6 +18,7 @@ async def list_anomalies(
     anomaly_type: Optional[str] = Query(default=None),
     date_from: Optional[str] = Query(default=None),
     date_to: Optional[str] = Query(default=None),
+    source_ids: Optional[str] = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
@@ -29,6 +30,10 @@ async def list_anomalies(
         q = q.where(Anomaly.date >= parse_date(date_from))
     if date_to:
         q = q.where(Anomaly.date <= parse_date(date_to))
+    if source_ids:
+        src_list = [s.strip() for s in source_ids.split(",") if s.strip()]
+        if src_list:
+            q = q.where(Anomaly.source_id.in_(src_list))
     q = q.limit(limit)
     rows = (await db.execute(q)).scalars().all()
     return {

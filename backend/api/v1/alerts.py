@@ -13,6 +13,7 @@ router = APIRouter(prefix="/alerts", tags=["alerts"])
 async def list_alerts(
     unread_only: bool = Query(False),
     severity: Optional[str] = Query(None),
+    source_ids: Optional[str] = Query(None),
     limit: int = Query(50, le=200),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
@@ -22,6 +23,10 @@ async def list_alerts(
         q = q.where(Alert.is_read == False)
     if severity:
         q = q.where(Alert.severity == severity)
+    if source_ids:
+        src_list = [s.strip() for s in source_ids.split(",") if s.strip()]
+        if src_list:
+            q = q.where(Alert.source_ids.overlap(src_list))
 
     rows = await db.execute(q)
     alerts = rows.scalars().all()

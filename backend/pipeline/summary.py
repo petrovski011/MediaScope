@@ -84,6 +84,34 @@ async def _fetch_daily_stats(target_date: date) -> dict:
             target_date, next_date,
         )
 
+        # D2: raspodela narativa po delovima dana (samo exact-time izvori)
+        daypart_rows = await pg.fetch(
+            """
+            SELECT
+                CASE
+                    WHEN EXTRACT(HOUR FROM a.published_at) BETWEEN 6 AND 11 THEN 'jutro'
+                    WHEN EXTRACT(HOUR FROM a.published_at) BETWEEN 12 AND 17 THEN 'podne'
+                    WHEN EXTRACT(HOUR FROM a.published_at) BETWEEN 18 AND 23 THEN 'vece'
+                    ELSE 'noc'
+                END AS daypart,
+                n.name AS narrative_name,
+                COUNT(*) AS cnt
+            FROM article_narratives an
+            JOIN articles a ON a.id = an.article_id
+            JOIN narratives n ON n.id = an.narrative_id
+            JOIN sources s ON s.source_id = a.source_id
+            WHERE a.published_at >= $1 AND a.published_at < $2
+              AND n.is_validated = TRUE
+              AND COALESCE(s.has_timestamp_time, TRUE) = TRUE
+            GROUP BY daypart, n.name
+            ORDER BY daypart, cnt DESC
+            """,
+            target_date, next_date,
+        )
+        daypart_by_slot: dict = {}
+        for r in daypart_rows:
+            daypart_by_slot.setdefault(r["daypart"], []).append(r["narrative_name"])
+
         return {
             "date": target_date.isoformat(),
             "total_articles": int(total or 0),
@@ -98,6 +126,7 @@ async def _fetch_daily_stats(target_date: date) -> dict:
                 for r in top_entities
             ],
             "copypaste_pairs": int(copypaste or 0),
+            "narratives_by_daypart": {k: v[:3] for k, v in daypart_by_slot.items()},
         }
     finally:
         await pg.close()
@@ -137,6 +166,19 @@ async def persist_summary(summary: dict) -> None:
         await pg.close()
 
 
+def _daypart_text(stats: dict) -> str:
+    dp = stats.get("narratives_by_daypart", {})
+    if not dp:
+        return ""
+    ORDER = [("jutro", "Jutro 06-12"), ("podne", "Podne 12-18"), ("vece", "Veče 18-24"), ("noc", "Noć 00-06")]
+    lines = ["\nNarativi po delovima dana (samo src sa tacnim vremenom):"]
+    for key, label in ORDER:
+        narrs = dp.get(key)
+        if narrs:
+            lines.append(f"  {label}: {', '.join(narrs)}")
+    return "\n".join(lines) + "\n" if len(lines) > 1 else ""
+
+
 def generate_summary(stats: dict) -> dict:
     """Poziva Claude da generise narativni pregled na osnovu statistika."""
     client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
@@ -156,7 +198,7 @@ Prosecni politicki skor po izvoru (>0 = pro-vladino, <0 = opoziciono):
 
 Najcesci akteri:
 {chr(10).join(f"  {e['name']} ({e['type']}): {e['mentions']} pominjanja" for e in stats['top_entities'][:8])}
-
+{_daypart_text(stats)}
 Napravi strukturirani pregled u JSON formatu:
 {{
   "headline": "Kratki naslov dana (max 10 reci)",

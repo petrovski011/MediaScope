@@ -137,4 +137,94 @@ async def propaganda_stats(
         {"source_id": src, "techniques": techs, "total": sum(techs.values())}
         for src, techs in sorted(source_technique.items(), key=lambda x: -sum(x[1].values()))
     ]
-    return {"by_technique": by_technique, "by_source": by_source, "methodology_note": NOTE}
+
+    # Smear kampanje po target_group
+    target_rows = (await db.execute(text(f"""
+        SELECT elem->>'target_group' AS target_group, COUNT(*) AS cnt
+        FROM article_analysis aa
+        JOIN articles a ON a.id = aa.article_id
+        CROSS JOIN jsonb_array_elements(aa.propaganda_targets) AS elem
+        WHERE aa.propaganda_targets IS NOT NULL
+          AND jsonb_array_length(aa.propaganda_targets) > 0 {df}
+        GROUP BY target_group
+        ORDER BY cnt DESC
+    """), params)).all()
+    by_target_group = [{"target_group": r.target_group, "count": int(r.cnt)} for r in target_rows if r.target_group]
+
+    return {"by_technique": by_technique, "by_source": by_source, "by_target_group": by_target_group, "methodology_note": NOTE}
+
+
+@router.get("/geopolitical")
+async def geopolitical_sentiment(
+    date_from: Optional[str] = Query(default=None),
+    date_to: Optional[str] = Query(default=None),
+    source_ids: Optional[str] = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Prosečan geopolitički sentiment po akteru (EU, Rusija, SAD, Kina, NATO, Zapad).
+
+    Vraća kako srpski mediji prikazuju geopolitičke aktere u izabranom periodu/filteru.
+    Sentiment: -1.0 (izrazito negativan tretman) do +1.0 (izrazito pozitivan tretman).
+    """
+    params = {}
+    df = ""
+    if date_from:
+        df += " AND a.published_at >= :date_from"; params["date_from"] = parse_date(date_from)
+    if date_to:
+        df += " AND a.published_at <= :date_to"; params["date_to"] = parse_date(date_to)
+    src_ids = _parse_source_ids(source_ids)
+    if src_ids:
+        df += " AND a.source_id = ANY(:source_ids)"; params["source_ids"] = src_ids
+
+    rows = (await db.execute(text(f"""
+        SELECT
+            elem->>'actor' AS actor,
+            ROUND(AVG((elem->>'sentiment')::float)::numeric, 3) AS avg_sentiment,
+            COUNT(*) AS article_count
+        FROM article_analysis aa
+        JOIN articles a ON a.id = aa.article_id
+        CROSS JOIN jsonb_array_elements(aa.geopolitical_sentiment) AS elem
+        WHERE aa.geopolitical_sentiment IS NOT NULL
+          AND jsonb_array_length(aa.geopolitical_sentiment) > 0 {df}
+        GROUP BY actor
+        ORDER BY avg_sentiment DESC
+    """), params)).all()
+
+    # Per-source per-actor breakdown
+    by_source_rows = (await db.execute(text(f"""
+        SELECT
+            a.source_id,
+            elem->>'actor' AS actor,
+            ROUND(AVG((elem->>'sentiment')::float)::numeric, 3) AS avg_sentiment,
+            COUNT(*) AS cnt
+        FROM article_analysis aa
+        JOIN articles a ON a.id = aa.article_id
+        CROSS JOIN jsonb_array_elements(aa.geopolitical_sentiment) AS elem
+        WHERE aa.geopolitical_sentiment IS NOT NULL
+          AND jsonb_array_length(aa.geopolitical_sentiment) > 0 {df}
+        GROUP BY a.source_id, actor
+        ORDER BY a.source_id, actor
+    """), params)).all()
+
+    by_source: dict = {}
+    for r in by_source_rows:
+        if r.source_id not in by_source:
+            by_source[r.source_id] = {}
+        by_source[r.source_id][r.actor] = float(r.avg_sentiment)
+
+    return {
+        "by_actor": [
+            {
+                "actor": r.actor,
+                "avg_sentiment": float(r.avg_sentiment),
+                "article_count": int(r.article_count),
+            }
+            for r in rows if r.actor
+        ],
+        "by_source": [
+            {"source_id": src, "actors": actors}
+            for src, actors in sorted(by_source.items())
+        ],
+        "methodology_note": "Sentiment: -1.0 = izrazito negativan tretman akteru, +1.0 = izrazito pozitivan. Meri se tretman u tekstu, ne opšti stav uredništva.",
+    }

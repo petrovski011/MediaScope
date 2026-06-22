@@ -213,12 +213,28 @@ Pogledaj KATALOG FRAMING OKVIRA u sistemskim instrukcijama. Za framing vazi:
   (naziv u stilu "..._frame", opis, citat). Ne izmisljaj okvire bez osnova.
 - Ako nijedan okvir nije izrazit, vrati praznu listu.
 
-## 5b. Propagandne tehnike
-Identifikuj propagandne tehnike koje clanak eksplicitno koristi. Koristi ISKLJUCIVO:
+## 5b. Propagandne tehnike i smear kampanje
+AKTIVNO TRAZI propagandne signale — ne cekaj da budu eksplicitni. Koristi ISKLJUCIVO:
 DEMONIZACIJA, DEZINFORMACIJA, CONSPIRACY_THEORY, FEAR_APPEAL, FALSE_DICHOTOMY,
-SCAPEGOATING, DEFAMATION, SMEAR_CAMPAIGN, WHATABOUTISM, CHERRY_PICKING, EMOTIONAL_APPEAL.
+SCAPEGOATING, DEFAMATION, SMEAR_CAMPAIGN, WHATABOUTISM, CHERRY_PICKING, EMOTIONAL_APPEAL,
+FAR_RIGHT_NARRATIVE, ULTRA_RIGHT_NARRATIVE.
+
+FAR_RIGHT_NARRATIVE: desnicarski narativ (autoritarnost, etnonacionalizam, anti-liberalizam, anti-EU, "naso coveka").
+ULTRA_RIGHT_NARRATIVE: ultradesnicarski narativ (ekstremni nacionalizam, neo-fascisticki elementi, mrznja prema manjinama).
+SMEAR_CAMPAIGN / DEFAMATION: posebno detektuj negativne kampanje uperene ka civilnom drustvu/NVO,
+opoziciji, studentima/protestima, nezavisnim medijima i novinarima.
+
+propaganda_targets: lista meta — svaki element mora imati:
+  - "name": ime entiteta ili grupe (konkretno)
+  - "target_group": "civil_society" | "opposition" | "students" | "media" | "other"
+
 Ako nema jasnih propagandnih tehnika — vrati praznu listu.
-propaganda_targets: lista entiteta koji su eksplicitna meta (po imenu, iz NER liste iznad).
+
+## 5c. Geopoliticki sentiment
+Za sve geopoliticke aktere koji se POMINJU u tekstu, proceni kako ih tekst PRIKAZUJE (ne tvoj licni stav).
+Akteri koje pratis: "EU", "Rusija", "SAD", "Kina", "NATO", "Zapad".
+Vrati SAMO aktere koji su prisutni u tekstu.
+sentiment: -1.0 (izrazito negativan/kritican tretman) do +1.0 (izrazito pozitivan/povoljan tretman), 0.0 = neutralan/faktografski.
 
 ## 5. Narativi
 Pogledaj KATALOG NARATIVA u sistemskim instrukcijama (ako postoji). Za narative vazi:
@@ -256,9 +272,16 @@ Vrati ISKLJUCIVO ovaj JSON (bez ikakvih objasnjenja van JSON-a):
   "sensationalism": 0.61,
   "sentiment": "negative",
   "sentiment_score": -0.55,
-  "propaganda_techniques": ["FEAR_APPEAL", "DEMONIZACIJA"],
+  "propaganda_techniques": ["FEAR_APPEAL", "SMEAR_CAMPAIGN"],
   "propaganda_confidence": 0.71,
-  "propaganda_targets": ["EU", "opozicija"],
+  "propaganda_targets": [
+    {{"name": "Srbija protiv nasilja", "target_group": "opposition"}},
+    {{"name": "BIRN", "target_group": "media"}}
+  ],
+  "geopolitical_sentiment": [
+    {{"actor": "EU", "sentiment": -0.6}},
+    {{"actor": "Rusija", "sentiment": 0.4}}
+  ],
   "framings": [
     {{"framing_type": "uslovljavanje_frame", "confidence": 0.82, "supporting_text": "...citat iz clanka..."}},
     {{"framing_type": "conflict_frame", "confidence": 0.61, "supporting_text": "...citat iz clanka..."}}
