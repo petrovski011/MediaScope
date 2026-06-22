@@ -143,13 +143,13 @@ async def topic_framing_split(
         df += " AND a.published_at <= :date_to"; params["date_to"] = parse_date(date_to)
 
     overall = (await db.execute(text(f"""
-        SELECT ft.name AS framing, COUNT(*) AS cnt, AVG(af.confidence) AS avg_conf
+        SELECT ft.id AS framing_type_id, ft.name AS framing, COUNT(*) AS cnt, AVG(af.confidence) AS avg_conf
         FROM article_framings af
         JOIN framing_types ft ON ft.id = af.framing_type_id
         JOIN articles a ON a.id = af.article_id
         JOIN article_analysis aa ON aa.article_id = a.id AND aa.primary_topic = :topic
         WHERE 1=1 {df}
-        GROUP BY ft.name
+        GROUP BY ft.id, ft.name
         ORDER BY cnt DESC
     """), params)).all()
 
@@ -171,7 +171,7 @@ async def topic_framing_split(
     return {
         "topic": topic,
         "framing_split": [
-            {"framing": r.framing, "count": r.cnt,
+            {"framing_type_id": r.framing_type_id, "framing": r.framing, "count": r.cnt,
              "avg_confidence": round(float(r.avg_conf), 3) if r.avg_conf is not None else None}
             for r in overall
         ],

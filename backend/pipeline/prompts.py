@@ -181,7 +181,11 @@ BEZBEDNOST, MEDIJSKE_SLOBODE, PROTEST, KULTURA, ZABAVA_I_ESTRADA, SPORT, HRONIKA
 ZDRAVLJE, OBRAZOVANJE, SPOLJNA_POLITIKA, LOKALNA_VLAST, DRUSTVO
 (KULTURA = pozoriste, film, knjizevnost, klasicna muzika; ZABAVA_I_ESTRADA = rijaliti, celebrity, folk, showbiz)
 
-Ako ne odgovara nijednoj, predlozi novu kao "NOVA_TEMA: NAZIV".
+Uvek pokusaj da uklopis u jednu od gorenavedenih 18 tema — budi sto konzervativniji.
+Koristiti NOVA_TEMA je poslednje resenje: predlazi novu temu JEDINO ako clanak ocigledno i
+nedvosmisleno ne spada ni u jednu od 18 tema (npr. specificna sportska disciplina bez
+politicke dimenzije, ili sasvim nova oblast). Ako clanak "otprilike" odgovara nekoj temi,
+koristi tu temu. Na primer: esport → SPORT, folklorni festival → KULTURA, poplava → HRONIKA.
 
 ## 3. Politicko pozicioniranje
 Proceni na tri ose:

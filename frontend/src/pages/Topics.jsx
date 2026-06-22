@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Brush } from 'recharts'
 import { Hash, EyeOff, BarChart3, AlertTriangle, TrendingUp, ChevronDown, ChevronRight, Sparkles, Check, X } from 'lucide-react'
@@ -8,6 +9,24 @@ import { useAuth } from '../store/auth'
 
 const MIN_MAIN_ARTICLES = 20
 const PROPOSALS_PAGE_SIZE = 5
+
+function suggestMerges(topics) {
+  const words = key => key.toLowerCase().replace(/_/g, ' ').split(' ').filter(w => w.length >= 4)
+  const pairs = []
+  const seen = new Set()
+  for (let i = 0; i < topics.length; i++) {
+    for (let j = i + 1; j < topics.length; j++) {
+      const a = topics[i], b = topics[j]
+      const wa = new Set(words(a.topic)), wb = new Set(words(b.topic))
+      const common = [...wa].filter(w => wb.has(w))
+      if (common.length >= 1) {
+        const key = [a.topic, b.topic].sort().join('__')
+        if (!seen.has(key)) { seen.add(key); pairs.push({ a, b, common }) }
+      }
+    }
+  }
+  return pairs.slice(0, 6)
+}
 
 const FR_COLORS = ['#6366f1', '#3b82f6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#8b5cf6', '#14b8a6']
 
@@ -169,6 +188,7 @@ function FramingEvolution({ topic }) {
 
 
 function CoverageDetail({ topic, filterParams }) {
+  const navigate = useNavigate()
   const { data: cov } = useQuery({
     queryKey: ['topic-coverage', topic, filterParams],
     queryFn: () => api.get(`/topics/${encodeURIComponent(topic)}/coverage?${new URLSearchParams(filterParams)}`).then(r => r.data),
@@ -271,19 +291,25 @@ function CoverageDetail({ topic, filterParams }) {
       {/* Framing split */}
       {fr?.framing_split?.length > 0 && (
         <div className="rounded-xl border p-4" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex items-center gap-2 mb-1">
             <BarChart3 size={14} style={{ color: 'var(--text-muted)' }} />
             <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Framing distribucija</h3>
           </div>
+          <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+            Broj članaka po framing tipu za temu <strong>{topic}</strong> — klikni bar za filtrirane članke.
+          </p>
           <div className="space-y-2">
             {fr.framing_split.map(f => (
-              <div key={f.framing} className="flex items-center gap-3">
+              <button key={f.framing}
+                onClick={() => navigate(`/articles?topic=${encodeURIComponent(topic)}&framing_type_id=${f.framing_type_id}`)}
+                className="flex items-center gap-3 w-full text-left rounded hover:bg-white/[0.03] px-1 -mx-1 transition-colors"
+                title={`Prikaži članke: ${f.framing}`}>
                 <span className="text-xs w-44 truncate" style={{ color: 'var(--text-secondary)' }}>{f.framing}</span>
                 <div className="flex-1 h-3 rounded-full overflow-hidden" style={{ background: 'var(--bg-elevated)' }}>
                   <div className="h-full rounded-full" style={{ width: `${(f.count / maxFraming) * 100}%`, background: 'var(--accent)' }} />
                 </div>
                 <span className="text-xs tabular-nums w-8 text-right" style={{ color: 'var(--text-muted)' }}>{f.count}</span>
-              </div>
+              </button>
             ))}
           </div>
         </div>
@@ -506,6 +532,36 @@ export default function Topics() {
               </div>
               {canMerge && (
                 <div className="border-t pt-3" style={{ borderColor: 'var(--border)' }}>
+                  {(() => {
+                    const suggestions = suggestMerges(smallTopics)
+                    if (!suggestions.length) return null
+                    return (
+                      <div className="mb-3 p-3 rounded-lg" style={{ background: 'var(--bg-elevated)' }}>
+                        <p className="text-xs font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
+                          Preporučena spajanja (slični nazivi):
+                        </p>
+                        <div className="space-y-1.5">
+                          {suggestions.map(({ a, b, common }) => (
+                            <div key={`${a.topic}__${b.topic}`} className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'var(--bg-surface)', color: 'var(--text-secondary)' }}>
+                                {tlabel(a.topic)} <span style={{ color: 'var(--text-muted)' }}>({a.article_count})</span>
+                              </span>
+                              <span className="text-xs" style={{ color: 'var(--text-muted)' }}>→</span>
+                              <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'var(--bg-surface)', color: 'var(--text-secondary)' }}>
+                                {tlabel(b.topic)} <span style={{ color: 'var(--text-muted)' }}>({b.article_count})</span>
+                              </span>
+                              <span className="text-xs italic" style={{ color: 'var(--text-muted)' }}>zajednički: {common.join(', ')}</span>
+                              <button onClick={() => { setMerging(a.topic); setMergeTarget(b.topic) }}
+                                className="text-xs px-2 py-0.5 rounded border hover:bg-white/[0.04]"
+                                style={{ borderColor: 'var(--border)', color: 'var(--accent)' }}>
+                                Postavi →
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })()}
                   <p className="text-xs mb-2" style={{ color: 'var(--text-muted)' }}>Spoji malu temu u veću (akcija je reverzibilna):</p>
                   <div className="flex flex-wrap gap-2 items-center">
                     <select value={merging || ''} onChange={e => { setMerging(e.target.value); setMergeTarget('') }}

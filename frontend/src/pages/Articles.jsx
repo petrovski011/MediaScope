@@ -165,7 +165,7 @@ export default function Articles() {
       </div>
 
       {/* Filteri */}
-      <div className="flex gap-3 mb-4 flex-wrap">
+      <div className="flex gap-3 mb-4 flex-wrap items-start">
         <div className="flex flex-col gap-1 flex-1 min-w-60">
           <form onSubmit={handleSearch} className="flex gap-2">
             <div className="relative flex-1">

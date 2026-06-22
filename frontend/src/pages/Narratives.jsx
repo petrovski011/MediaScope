@@ -380,7 +380,7 @@ function CoordinationPanel({ filterParams }) {
     queryFn: () => api.get(`/coordination/framing?${fmParams}`).then(r => r.data),
   })
 
-  const cpPairs = cpData?.pairs || []
+  const cpPairs = cpData?.groups || []
   const fmGroups = fmData?.groups || []
   const fmSignals = fmGroups.filter(g => g.coordination_signal)
 
@@ -424,22 +424,26 @@ function CoordinationPanel({ filterParams }) {
             </div>
           ) : (
             <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-              {cpSlice.map((pair, i) => (
+              {cpSlice.map((group, i) => (
                 <div key={i} className="px-4 py-3">
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-xs px-2 py-0.5 rounded-full"
                       style={{
-                        background: pair.similarity_score >= 0.95 ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)',
-                        color: pair.similarity_score >= 0.95 ? '#fca5a5' : '#fbbf24',
+                        background: group.max_similarity >= 0.95 ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)',
+                        color: group.max_similarity >= 0.95 ? '#fca5a5' : '#fbbf24',
                       }}>
-                      {Math.round(pair.similarity_score * 100)}% podudaranje
+                      {Math.round(group.max_similarity * 100)}% podudaranje
+                    </span>
+                    <span className="text-xs px-2 py-0.5 rounded"
+                      style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}>
+                      {group.size} {group.size === 1 ? 'medij' : 'medija'}
                     </span>
                     <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                      {pair.article1.published_at?.slice(0, 10)}
+                      {group.articles[0]?.published_at?.slice(0, 10)}
                     </span>
                   </div>
                   <div className="space-y-1.5">
-                    {[pair.article1, pair.article2].map((a, j) => (
+                    {group.articles.map((a, j) => (
                       <div key={j} onClick={() => navigate(`/articles/${a.id}`)}
                         className="flex items-center gap-2 cursor-pointer hover:bg-white/[0.02] rounded p-1.5 -mx-1.5 transition-colors">
                         <span className="text-xs px-2 py-0.5 rounded shrink-0"
@@ -585,6 +589,14 @@ function NarrativesPanel() {
             <Plus size={12} /> Dodaj narrativ
           </button>
         )}
+      </div>
+
+      <div className="px-4 py-2.5 border-b text-xs leading-relaxed" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)', background: 'var(--bg-elevated)' }}>
+        <strong style={{ color: 'var(--text-secondary)' }}>Šta je definicija narativa?</strong>{' '}
+        Narrativ je obrazac koji AI pronalazi u člancima. Ovde definišete katalog narativa koji vas zanima — svaki novi članak se tada automatski mapira <em>samo na odobrene narative</em> iz ovog kataloga.
+        {' '}<strong style={{ color: 'var(--text-secondary)' }}>Tok:</strong>{' '}
+        AI predlaže narative (vidljivi u "Predlozi") → istraživač odobrava ili ručno dodaje → od tog trenutka svaki članak dobija confidence skor + citat za svaki aktivan narrativ.
+        Nevalidovani narativi se ne koriste u analizi.
       </div>
 
       {showCreate && (
@@ -859,8 +871,9 @@ function IntradayPanel({ filterParams }) {
 
         {tab === 'narr_hour' && (
           !narrHasData ? (
-            <div className="py-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
-              Nema narativa sa tačnim vremenom u periodu.
+            <div className="py-8 text-center text-sm space-y-1" style={{ color: 'var(--text-muted)' }}>
+              <div>{narrData?.intraday_note?.reason || 'Nema narativa sa tačnim vremenom u periodu.'}</div>
+              {topNarr.length === 0 && <div className="text-xs" style={{ color: 'var(--accent)' }}>Odobrite narative u panelu istraživača da biste videli intraday distribuciju.</div>}
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={220}>
@@ -878,8 +891,9 @@ function IntradayPanel({ filterParams }) {
 
         {tab === 'narr_dow' && (
           !narrHasData ? (
-            <div className="py-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
-              Nema narativa sa tačnim vremenom u periodu.
+            <div className="py-8 text-center text-sm space-y-1" style={{ color: 'var(--text-muted)' }}>
+              <div>{narrData?.intraday_note?.reason || 'Nema narativa sa tačnim vremenom u periodu.'}</div>
+              {topNarr.length === 0 && <div className="text-xs" style={{ color: 'var(--accent)' }}>Odobrite narative u panelu istraživača da biste videli distribuciju po danu.</div>}
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={220}>
@@ -897,8 +911,9 @@ function IntradayPanel({ filterParams }) {
 
         {tab === 'heatmap' && (
           heatmap.length === 0 ? (
-            <div className="py-8 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
-              Nema narativa sa tačnim vremenom u periodu.
+            <div className="py-8 text-center text-sm space-y-1" style={{ color: 'var(--text-muted)' }}>
+              <div>{narrData?.intraday_note?.reason || 'Nema narativa sa tačnim vremenom u periodu.'}</div>
+              {topNarr.length === 0 && <div className="text-xs" style={{ color: 'var(--accent)' }}>Odobrite narative u panelu istraživača da biste videli heatmap.</div>}
             </div>
           ) : (
             <div className="overflow-x-auto">

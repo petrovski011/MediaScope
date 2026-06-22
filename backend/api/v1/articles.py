@@ -46,6 +46,7 @@ async def list_articles(
     sentiment: Optional[str] = Query(default=None),  # positive|negative|neutral|mixed — article-level
     narrative_id: Optional[int] = Query(default=None),
     framing_type_id: Optional[int] = Query(default=None),
+    propaganda_technique: Optional[str] = Query(default=None),
     framing_proposal_id: Optional[int] = Query(default=None),
     narrative_cluster_id: Optional[int] = Query(default=None),
     political_score_min: Optional[float] = Query(default=None),
@@ -110,6 +111,9 @@ async def list_articles(
     if narrative_cluster_id:
         sub = select(NarrativeProposal.article_id).where(NarrativeProposal.cluster_id == narrative_cluster_id)
         q = q.where(Article.id.in_(sub))
+    if propaganda_technique:
+        import json
+        q = q.where(ArticleAnalysis.propaganda_techniques.op('@>')(json.dumps([propaganda_technique])))
 
     count_q = select(func.count()).select_from(q.subquery())
     total = (await db.execute(count_q)).scalar()

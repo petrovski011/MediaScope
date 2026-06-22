@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend } from 'recharts'
-import { Newspaper, Radio, TrendingUp, Sun, AlertTriangle, Users } from 'lucide-react'
+import { Newspaper, Radio, TrendingUp, Sun, AlertTriangle } from 'lucide-react'
 import { useFilters, toParams } from '../store/filters'
 import { useNavigate } from 'react-router-dom'
 import api from '../lib/api'
@@ -156,97 +156,44 @@ const SENTIMENT_LABELS = { positive: 'Pozitivan', negative: 'Negativan', neutral
 
 const ANOMALY_LABELS = { topic_surge: 'Skok teme', topic_silence: 'Tišina', framing_shift: 'Framing shift', anomaly: 'Anomalija' }
 
-function AnomaliesAndActorsRow({ filterParams }) {
+function AnomaliesCard() {
   const navigate = useNavigate()
   const { data: anomData } = useQuery({
     queryKey: ['dashboard-anomalies'],
-    queryFn: () => api.get('/anomalies?limit=5').then(r => r.data),
+    queryFn: () => api.get('/anomalies?limit=6').then(r => r.data),
   })
-  const { data: actorsData } = useQuery({
-    queryKey: ['dashboard-actors', filterParams],
-    queryFn: () => api.get(`/political/actors?${new URLSearchParams(filterParams)}`).then(r => r.data),
-  })
-
   const anomalies = anomData?.anomalies || []
-  const actors = actorsData?.actors || []
-  const topPos = actors.filter(a => a.avg_entity_sentiment > 0.15).slice(0, 4)
-  const topNeg = actors.filter(a => a.avg_entity_sentiment < -0.15).slice(0, 4)
-
-  if (!anomalies.length && !topPos.length && !topNeg.length) return null
-
   const fmtDate = (s) => {
     if (!s) return ''
     const d = new Date(s)
     return d.toLocaleDateString('sr-RS', { day: '2-digit', month: '2-digit' })
   }
-
   return (
-    <div className="grid grid-cols-2 gap-4">
-      {/* Anomalije */}
-      {anomalies.length > 0 && (
-        <div className="rounded-xl border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
-          <div className="px-4 py-2.5 border-b flex items-center gap-2" style={{ borderColor: 'var(--border)' }}>
-            <AlertTriangle size={13} style={{ color: '#f59e0b' }} />
-            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
-              Najnovije anomalije
-            </span>
-            <button onClick={() => navigate('/anomalies')}
-              className="ml-auto text-xs hover:underline" style={{ color: 'var(--accent)' }}>sve →</button>
-          </div>
-          <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-            {anomalies.map(a => (
-              <div key={a.id} className="px-4 py-2 flex items-center gap-3">
-                <span className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
-                  style={{ background: '#f59e0b22', color: '#f59e0b' }}>
-                  {ANOMALY_LABELS[a.anomaly_type] || a.anomaly_type}
-                </span>
-                <span className="text-xs flex-1 truncate" style={{ color: 'var(--text-secondary)' }}>
-                  {a.topic || a.framing_name || a.narrative_name || '—'}
-                </span>
-                <span className="text-xs shrink-0 tabular-nums" style={{ color: 'var(--text-muted)' }}>{fmtDate(a.detected_at)}</span>
-              </div>
-            ))}
-          </div>
+    <div className="rounded-xl border flex flex-col" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+      <div className="px-4 py-2.5 border-b flex items-center gap-2 shrink-0" style={{ borderColor: 'var(--border)' }}>
+        <AlertTriangle size={13} style={{ color: '#f59e0b' }} />
+        <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Anomalije</span>
+        <button onClick={() => navigate('/anomalies')}
+          className="ml-auto text-xs hover:underline" style={{ color: 'var(--accent)' }}>sve →</button>
+      </div>
+      {anomalies.length > 0 ? (
+        <div className="divide-y flex-1" style={{ borderColor: 'var(--border)' }}>
+          {anomalies.map(a => (
+            <div key={a.id} className="px-4 py-2.5 flex items-center gap-2">
+              <span className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
+                style={{ background: '#f59e0b22', color: '#f59e0b' }}>
+                {ANOMALY_LABELS[a.anomaly_type] || a.anomaly_type}
+              </span>
+              <span className="text-xs flex-1 truncate" style={{ color: 'var(--text-secondary)' }}>
+                {a.topic || a.framing_name || a.narrative_name || '—'}
+              </span>
+              <span className="text-xs shrink-0 tabular-nums" style={{ color: 'var(--text-muted)' }}>{fmtDate(a.detected_at)}</span>
+            </div>
+          ))}
         </div>
-      )}
-
-      {/* Top akteri po sentimentu */}
-      {(topPos.length > 0 || topNeg.length > 0) && (
-        <div className="rounded-xl border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
-          <div className="px-4 py-2.5 border-b flex items-center gap-2" style={{ borderColor: 'var(--border)' }}>
-            <Users size={13} style={{ color: 'var(--text-muted)' }} />
-            <span className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>
-              Akteri po sentimentu
-            </span>
-            <button onClick={() => navigate('/political')}
-              className="ml-auto text-xs hover:underline" style={{ color: 'var(--accent)' }}>sve →</button>
-          </div>
-          <div className="p-3 grid grid-cols-2 gap-3">
-            {topPos.length > 0 && (
-              <div>
-                <div className="text-[10px] font-medium mb-1.5" style={{ color: '#22c55e' }}>Pozitivni tretman</div>
-                {topPos.map(a => (
-                  <button key={a.id} onClick={() => navigate(`/articles?entity_id=${a.id}&entity_name=${encodeURIComponent(a.name)}`)}
-                    className="flex items-center gap-2 w-full py-0.5 hover:opacity-80">
-                    <span className="text-xs truncate flex-1 text-left" style={{ color: 'var(--text-secondary)' }}>{a.name}</span>
-                    <span className="text-xs tabular-nums" style={{ color: '#22c55e' }}>+{a.avg_entity_sentiment.toFixed(2)}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-            {topNeg.length > 0 && (
-              <div>
-                <div className="text-[10px] font-medium mb-1.5" style={{ color: '#ef4444' }}>Negativni tretman</div>
-                {topNeg.map(a => (
-                  <button key={a.id} onClick={() => navigate(`/articles?entity_id=${a.id}&entity_name=${encodeURIComponent(a.name)}`)}
-                    className="flex items-center gap-2 w-full py-0.5 hover:opacity-80">
-                    <span className="text-xs truncate flex-1 text-left" style={{ color: 'var(--text-secondary)' }}>{a.name}</span>
-                    <span className="text-xs tabular-nums" style={{ color: '#ef4444' }}>{a.avg_entity_sentiment.toFixed(2)}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+      ) : (
+        <div className="flex-1 flex items-center justify-center text-sm" style={{ color: 'var(--text-muted)' }}>
+          Nema novih anomalija
         </div>
       )}
     </div>
@@ -276,7 +223,7 @@ export default function Dashboard() {
   const sentimentTotal = Object.values(sentiment).reduce((a, b) => a + b, 0)
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-5">
       <div>
         <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Dashboard</h1>
         <p className="text-sm mt-0.5" style={{ color: 'var(--text-muted)' }}>Pregled medijskog pejzaža — srpski portali</p>
@@ -284,20 +231,21 @@ export default function Dashboard() {
 
       <MorningSummary />
 
-      {/* Stat kartice */}
-      <div className="grid grid-cols-3 gap-4">
-        <StatCard icon={Newspaper} label="Ukupno članaka" value={stats?.total?.toLocaleString()} sub="u bazi" />
-        <StatCard
-          icon={TrendingUp} label="Analizirano"
-          value={stats?.analyzed?.toLocaleString()}
-          sub={`${stats?.pipeline_pct ?? 0}% od ukupnog`}
-          accent={stats?.pipeline_pct === 100 ? '#22c55e' : '#f59e0b'}
-        />
-        <StatCard icon={Radio} label="Aktivnih izvora" value={stats?.active_sources} sub="srpskih medija" />
-      </div>
+      {/* ROW 1: Stat kartice stacked | Pie chart | Anomalije */}
+      <div className="grid grid-cols-3 gap-4" style={{ alignItems: 'stretch' }}>
+        {/* Col 1 — 3 stat kartice stacked */}
+        <div className="flex flex-col gap-3">
+          <StatCard icon={Newspaper} label="Ukupno članaka" value={stats?.total?.toLocaleString()} sub="u bazi" />
+          <StatCard
+            icon={TrendingUp} label="Analizirano"
+            value={stats?.analyzed?.toLocaleString()}
+            sub={`${stats?.pipeline_pct ?? 0}% od ukupnog`}
+            accent={stats?.pipeline_pct === 100 ? '#22c55e' : '#f59e0b'}
+          />
+          <StatCard icon={Radio} label="Aktivnih izvora" value={stats?.active_sources} sub="srpskih medija" />
+        </div>
 
-      <div className="grid grid-cols-3 gap-4">
-        {/* 1. Distribucija tema — Pie chart */}
+        {/* Col 2 — Distribucija tema (pie) */}
         <div className="rounded-xl p-4 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
           <h2 className="text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
             Distribucija tema
@@ -307,7 +255,7 @@ export default function Dashboard() {
             <ResponsiveContainer width="100%" height={240}>
               <PieChart>
                 <Pie data={topTopics} dataKey="count" nameKey="topic" cx="50%" cy="45%"
-                  outerRadius={80} paddingAngle={2}
+                  outerRadius={82} paddingAngle={2}
                   label={({ topic, percent }) => percent > 0.05 ? `${topic.split(' ')[0]} ${Math.round(percent * 100)}%` : ''}
                   labelLine={false}>
                   {topTopics.map((_, i) => <Cell key={i} fill={`hsl(${220 + i * 18}, 55%, 55%)`} />)}
@@ -325,72 +273,71 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* 2. Politički skor — 2 kolone */}
-        <div className="rounded-xl p-4 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
-          <h2 className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Prosečan politički skor</h2>
-          <div className="flex justify-between text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
-            <span>← Opoziciono</span>
-            <span>Pro-vladino →</span>
-          </div>
-          {sourceScores.length > 0 ? (
-            <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 max-h-52 overflow-y-auto">
-              {sourceScores.map(s => (
-                <PoliticalBar key={s.source_id} source={s.name} score={s.avg_score} count={s.count} />
-              ))}
-            </div>
-          ) : (
-            <div className="h-32 flex items-center justify-center text-sm" style={{ color: 'var(--text-muted)' }}>
-              {isLoading ? 'Učitavanje...' : 'Pipeline analiza u toku...'}
-            </div>
-          )}
-        </div>
-
-        {/* 3. Sentiment — klikabilan */}
-        <div className="rounded-xl p-4 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
-          <h2 className="text-sm font-medium mb-3" style={{ color: 'var(--text-primary)' }}>
-            Sentiment
-            <span className="ml-2 text-xs font-normal italic" style={{ color: 'var(--text-muted)' }}>klik → članci</span>
-          </h2>
-          {sentimentTotal > 0 ? (
-            <>
-              <div className="flex gap-0.5 h-4 rounded-full overflow-hidden mb-4">
-                {Object.entries(sentiment).sort((a, b) => b[1] - a[1]).map(([s, n]) => (
-                  <button key={s}
-                    onClick={() => navigate(`/articles?sentiment=${s}`)}
-                    title={`${SENTIMENT_LABELS[s] || s}: ${n} čl. — klikni za filtrirane članke`}
-                    style={{ width: `${n / sentimentTotal * 100}%`, background: SENTIMENT_COLORS[s] }}
-                    className="hover:brightness-110 transition-all" />
-                ))}
-              </div>
-              <div className="space-y-2">
-                {Object.entries(sentiment).sort((a, b) => b[1] - a[1]).map(([s, n]) => (
-                  <button key={s}
-                    onClick={() => navigate(`/articles?sentiment=${s}`)}
-                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-white/[0.04] transition-colors">
-                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: SENTIMENT_COLORS[s] }} />
-                    <span className="text-sm flex-1 text-left" style={{ color: 'var(--text-secondary)' }}>
-                      {SENTIMENT_LABELS[s] || s}
-                    </span>
-                    <span className="text-sm tabular-nums font-medium" style={{ color: 'var(--text-primary)' }}>{n.toLocaleString()}</span>
-                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{Math.round(n / sentimentTotal * 100)}%</span>
-                  </button>
-                ))}
-              </div>
-            </>
-          ) : (
-            <div className="h-32 flex items-center justify-center text-sm" style={{ color: 'var(--text-muted)' }}>
-              {isLoading ? 'Učitavanje...' : 'Pipeline analiza u toku...'}
-            </div>
-          )}
-        </div>
+        {/* Col 3 — Anomalije */}
+        <AnomaliesCard />
       </div>
 
-      {/* Anomalije feed + Top akteri */}
-      <AnomaliesAndActorsRow filterParams={filterParams} />
+      {/* ROW 2: Politički skor — puna širina, landscape */}
+      <div className="rounded-xl p-4 border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Prosečan politički skor</h2>
+          <div className="flex gap-4 text-xs" style={{ color: 'var(--text-muted)' }}>
+            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full" style={{ background: '#3b82f6' }} />Opoziciono</span>
+            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full" style={{ background: '#6b7280' }} />Neutralno</span>
+            <span className="flex items-center gap-1"><span className="inline-block w-2 h-2 rounded-full" style={{ background: '#ef4444' }} />Pro-vladino</span>
+          </div>
+        </div>
+        {sourceScores.length > 0 ? (
+          <div className="grid gap-x-6 gap-y-0" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
+            {sourceScores.map(s => (
+              <PoliticalBar key={s.source_id} source={s.name} score={s.avg_score} count={s.count} />
+            ))}
+          </div>
+        ) : (
+          <div className="h-16 flex items-center justify-center text-sm" style={{ color: 'var(--text-muted)' }}>
+            {isLoading ? 'Učitavanje...' : 'Pipeline analiza u toku...'}
+          </div>
+        )}
+      </div>
 
+      {/* ROW 3: Sentiment — landscape, tanak */}
+      {sentimentTotal > 0 && (
+        <div className="rounded-xl border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+          <div className="px-4 py-2.5 border-b flex items-center gap-3" style={{ borderColor: 'var(--border)' }}>
+            <h2 className="text-xs font-semibold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Sentiment</h2>
+            <span className="text-xs italic" style={{ color: 'var(--text-muted)' }}>klik → filtrirani članci</span>
+          </div>
+          <div className="px-4 py-3 flex items-center gap-4">
+            {/* Stacked bar */}
+            <div className="flex h-3 rounded-full overflow-hidden flex-1 gap-px">
+              {Object.entries(sentiment).sort((a, b) => b[1] - a[1]).map(([s, n]) => (
+                <button key={s}
+                  onClick={() => navigate(`/articles?sentiment=${s}`)}
+                  title={`${SENTIMENT_LABELS[s] || s}: ${n} čl.`}
+                  style={{ width: `${n / sentimentTotal * 100}%`, background: SENTIMENT_COLORS[s] }}
+                  className="hover:brightness-125 transition-all" />
+              ))}
+            </div>
+            {/* Legend + counts */}
+            <div className="flex items-center gap-5 shrink-0">
+              {Object.entries(sentiment).sort((a, b) => b[1] - a[1]).map(([s, n]) => (
+                <button key={s} onClick={() => navigate(`/articles?sentiment=${s}`)}
+                  className="flex items-center gap-1.5 hover:opacity-80 transition-opacity">
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ background: SENTIMENT_COLORS[s] }} />
+                  <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{SENTIMENT_LABELS[s] || s}</span>
+                  <span className="text-xs tabular-nums font-medium" style={{ color: 'var(--text-primary)' }}>{n.toLocaleString()}</span>
+                  <span className="text-xs" style={{ color: 'var(--text-muted)' }}>({Math.round(n / sentimentTotal * 100)}%)</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ROW 4: Intraday */}
       <IntradayCard filterParams={filterParams} />
 
-      {/* Poslednji analizirani clanci */}
+      {/* ROW 5: Poslednji analizirani clanci */}
       <div className="rounded-xl border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
         <div className="px-4 py-3 border-b" style={{ borderColor: 'var(--border)' }}>
           <h2 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Poslednji analizirani članci</h2>

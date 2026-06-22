@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Activity, TrendingUp, TrendingDown, Shuffle, Volume2, Plus, X } from 'lucide-react'
+import { Activity, TrendingUp, TrendingDown, Shuffle, Volume2, Plus, X, ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useAuth } from '../store/auth'
 import api from '../lib/api'
+
+const PER_PAGE = 25
 
 const TYPE_META = {
   topic_spike:        { label: 'Skok teme', icon: TrendingUp, color: '#ef4444' },
@@ -66,11 +68,35 @@ function PeriodTypesPanel() {
 
 export default function Anomalies() {
   const [filter, setFilter] = useState('')
-  const { data } = useQuery({
-    queryKey: ['anomalies', filter],
-    queryFn: () => api.get(`/anomalies${filter ? `?anomaly_type=${filter}` : ''}`).then(r => r.data.anomalies),
+  const [page, setPage] = useState(1)
+  const [sortBy, setSortBy] = useState('date')
+  const [sortDir, setSortDir] = useState('desc')
+
+  const handleSort = (field) => {
+    if (sortBy === field) setSortDir(d => d === 'desc' ? 'asc' : 'desc')
+    else { setSortBy(field); setSortDir('desc') }
+    setPage(1)
+  }
+
+  const SortIcon = ({ field }) => {
+    if (sortBy !== field) return <ChevronDown size={11} className="opacity-30" />
+    return sortDir === 'desc' ? <ChevronDown size={11} className="opacity-80" /> : <ChevronUp size={11} className="opacity-80" />
+  }
+
+  const params = new URLSearchParams({
+    limit: PER_PAGE, offset: (page - 1) * PER_PAGE,
+    sort_by: sortBy, sort_dir: sortDir,
   })
-  const anomalies = data || []
+  if (filter) params.set('anomaly_type', filter)
+
+  const { data } = useQuery({
+    queryKey: ['anomalies', filter, page, sortBy, sortDir],
+    queryFn: () => api.get(`/anomalies?${params}`).then(r => r.data),
+    keepPreviousData: true,
+  })
+  const anomalies = data?.anomalies || []
+  const total = data?.total ?? 0
+  const totalPages = Math.ceil(total / PER_PAGE)
 
   return (
     <div className="p-6 space-y-5 max-w-5xl mx-auto">
@@ -85,16 +111,39 @@ export default function Anomalies() {
 
       <PeriodTypesPanel />
 
-      <div className="flex flex-wrap gap-2">
-        <button onClick={() => setFilter('')} className="px-3 py-1.5 rounded-lg text-xs border"
-          style={{ background: !filter ? 'var(--accent)' : 'var(--bg-surface)', borderColor: 'var(--border)', color: !filter ? 'white' : 'var(--text-secondary)' }}>Sve</button>
-        {Object.entries(TYPE_META).map(([k, m]) => (
-          <button key={k} onClick={() => setFilter(k)} className="px-3 py-1.5 rounded-lg text-xs border"
-            style={{ background: filter === k ? 'var(--accent)' : 'var(--bg-surface)', borderColor: 'var(--border)', color: filter === k ? 'white' : 'var(--text-secondary)' }}>
-            {m.label}
-          </button>
-        ))}
+      {/* Filter + sort header */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => { setFilter(''); setPage(1) }} className="px-3 py-1.5 rounded-lg text-xs border"
+            style={{ background: !filter ? 'var(--accent)' : 'var(--bg-surface)', borderColor: 'var(--border)', color: !filter ? 'white' : 'var(--text-secondary)' }}>Sve</button>
+          {Object.entries(TYPE_META).map(([k, m]) => (
+            <button key={k} onClick={() => { setFilter(k); setPage(1) }} className="px-3 py-1.5 rounded-lg text-xs border"
+              style={{ background: filter === k ? 'var(--accent)' : 'var(--bg-surface)', borderColor: 'var(--border)', color: filter === k ? 'white' : 'var(--text-secondary)' }}>
+              {m.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-muted)' }}>
+          <span>Sortiraj:</span>
+          {[['date', 'Datum'], ['deviation_pct', 'Odstupanje'], ['anomaly_type', 'Tip']].map(([f, lbl]) => (
+            <button key={f} onClick={() => handleSort(f)}
+              className="flex items-center gap-0.5 px-2 py-1 rounded border transition-colors"
+              style={{
+                borderColor: sortBy === f ? 'var(--accent)' : 'var(--border)',
+                color: sortBy === f ? 'var(--accent)' : 'var(--text-secondary)',
+                background: 'var(--bg-surface)',
+              }}>
+              {lbl}<SortIcon field={f} />
+            </button>
+          ))}
+        </div>
       </div>
+
+      {total > 0 && (
+        <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          {total.toLocaleString()} anomalija ukupno
+        </div>
+      )}
 
       {anomalies.length === 0 ? (
         <div className="rounded-xl border px-4 py-10 text-center text-sm" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
@@ -115,6 +164,9 @@ export default function Anomalies() {
                     {a.deviation_pct != null && (
                       <span className="text-xs tabular-nums font-medium" style={{ color: meta.color }}>{a.deviation_pct > 0 ? '+' : ''}{a.deviation_pct}%</span>
                     )}
+                    {a.source_id && (
+                      <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }}>{a.source_id}</span>
+                    )}
                   </div>
                   <p className="text-sm mt-1" style={{ color: 'var(--text-primary)' }}>{a.description}</p>
                   {(a.baseline_value != null && a.detected_value != null) && (
@@ -126,6 +178,25 @@ export default function Anomalies() {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* Paginacija */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-3">
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+            className="p-1.5 rounded border disabled:opacity-30"
+            style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)', background: 'var(--bg-surface)' }}>
+            <ChevronLeft size={14} />
+          </button>
+          <span className="text-xs tabular-nums" style={{ color: 'var(--text-muted)' }}>
+            {page} / {totalPages}
+          </span>
+          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+            className="p-1.5 rounded border disabled:opacity-30"
+            style={{ borderColor: 'var(--border)', color: 'var(--text-secondary)', background: 'var(--bg-surface)' }}>
+            <ChevronRight size={14} />
+          </button>
         </div>
       )}
     </div>

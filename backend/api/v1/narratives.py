@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
 from sqlalchemy import update as sa_update
+from sqlalchemy.dialects.postgresql import insert as sa_insert
 
 from api.deps import get_current_user, require_role, get_db
 from api.v1.researcher_log import log_action
@@ -150,12 +151,61 @@ async def narrative_origin(
     )).first()
 
     if not row:
+        # Compute on-the-fly from article_narratives if precomputed data missing
+        live_rows = (await db.execute(
+            text("""
+                SELECT
+                    a.source_id,
+                    s.name AS source_name,
+                    MIN(a.published_at) AS first_published_at,
+                    COUNT(*) AS article_count
+                FROM article_narratives an
+                JOIN articles a ON a.id = an.article_id
+                LEFT JOIN sources s ON s.source_id = a.source_id
+                WHERE an.narrative_id = :nid AND a.published_at IS NOT NULL
+                GROUP BY a.source_id, s.name
+                ORDER BY first_published_at ASC
+            """),
+            {"nid": narrative_id},
+        )).all()
+        if not live_rows or len(live_rows) < 2:
+            return {
+                "narrative_id": narrative_id,
+                "narrative_name": n.name,
+                "origin": None,
+                "spread_timeline": [],
+                "origin_note": "Narativ nema dovoljno pokrivenosti kroz medije za prikaz origin trackinga (potrebno ≥2 izvora).",
+            }
+        first = live_rows[0]
+        last = live_rows[-1]
+        spread_hours = (last.first_published_at - first.first_published_at).total_seconds() / 3600
+        has_exact = first.first_published_at.hour != 0 or first.first_published_at.minute != 0
+        spread = [
+            {
+                "source_id": r.source_id,
+                "source_name": r.source_name,
+                "first_published_at": r.first_published_at.isoformat(),
+                "exact_time": r.first_published_at.hour != 0 or r.first_published_at.minute != 0,
+                "article_count": r.article_count,
+                "hours_after_first": round((r.first_published_at - first.first_published_at).total_seconds() / 3600, 1),
+            }
+            for r in live_rows
+        ]
         return {
             "narrative_id": narrative_id,
             "narrative_name": n.name,
-            "origin": None,
-            "spread_timeline": [],
-            "origin_note": "Origin podaci nisu dostupni — task još nije pokrenuo ili narativ nema dovoljno pokrivenosti.",
+            "origin": {
+                "first_source_id": first.source_id,
+                "first_published_at": first.first_published_at.isoformat(),
+                "has_exact_time": has_exact,
+                "total_sources": len(live_rows),
+                "spread_hours": round(spread_hours, 1),
+                "window_days": None,
+                "computed_at": None,
+            },
+            "spread_timeline": spread,
+            "origin_note": ("Računato uživo iz article_narratives — noćni task još nije pokrenuo preračunavanje."
+                            + ("" if has_exact else " Prvi izvor nema tačno vreme objave (datum bez sata).")),
         }
 
     import json as _json
@@ -295,10 +345,27 @@ async def approve_narrative_proposal(
         .where(NarrativeProposal.cluster_id == cluster.id)
         .values(status="approved")
     )
+
+    # Backfill article_narratives from all proposals in this cluster
+    proposals_for_backfill = (await db.execute(
+        select(NarrativeProposal.article_id, NarrativeProposal.supporting_text)
+        .where(NarrativeProposal.cluster_id == cluster.id)
+        .where(NarrativeProposal.article_id.isnot(None))
+    )).all()
+    for p in proposals_for_backfill:
+        await db.execute(
+            sa_insert(ArticleNarrative).values(
+                article_id=p.article_id,
+                narrative_id=narrative_id,
+                confidence=None,
+                supporting_text=p.supporting_text,
+            ).on_conflict_do_nothing(index_elements=["article_id", "narrative_id"])
+        )
+
     log_action(db, user=current_user, action_type="approve", entity_type="narrative_cluster",
                entity_id=proposal_id, old_status="pending", new_status="accepted")
     await db.commit()
-    return {"ok": True, "narrative_id": narrative_id}
+    return {"ok": True, "narrative_id": narrative_id, "backfilled": len(proposals_for_backfill)}
 
 
 @router.post("/proposals/{proposal_id}/reject")

@@ -48,10 +48,11 @@ function Section({ id, icon: Icon, title, children }) {
 }
 
 function Note({ kind = 'info', children }) {
-  const styles = {
+  const styles = ({
     info: { bg: 'rgba(59,130,246,0.08)', bd: 'rgba(59,130,246,0.3)', fg: '#93c5fd', Icon: Info },
     warn: { bg: 'rgba(245,158,11,0.08)', bd: 'rgba(245,158,11,0.3)', fg: '#fbbf24', Icon: AlertTriangle },
-  }[kind]
+    meth: { bg: 'rgba(139,92,246,0.08)', bd: 'rgba(139,92,246,0.3)', fg: '#a78bfa', Icon: Shield },
+  }[kind]) ?? { bg: 'rgba(59,130,246,0.08)', bd: 'rgba(59,130,246,0.3)', fg: '#93c5fd', Icon: Info }
   const { Icon } = styles
   return (
     <div className="rounded-lg p-3 flex items-start gap-2 text-xs" style={{ background: styles.bg, border: `1px solid ${styles.bd}`, color: styles.fg }}>
@@ -194,7 +195,7 @@ export default function Methodology() {
               <Defn term="EU_INTEGRACIJE (primer)">uslovljavanje, evropski_put, licemerje, reforme.</Defn>
             </div>
             <Note kind="info">
-              Ako AI prepozna jasno prisutan okvir koji nije u katalogu, <strong>predlaže nov</strong> — istraživač ga validira pre nego što uđe u upotrebu. Tako se tipologija razvija empirijski, uz ljudsku kontrolu. Upravljanje okvirima je na stranici <em>Framing</em>.
+              Ako AI prepozna jasno prisutan okvir koji nije u katalogu, <strong>predlaže nov</strong> — istraživač ga validira pre nego što uđe u upotrebu. Tako se tipologija razvija empirijski, uz ljudskom kontrolom. Upravljanje okvirima je na stranici <em>Framing</em>. Na stranici <em>Teme</em>, framing distribucija za svaku temu prikazuje broj članaka po okviru — svaki bar je <strong>klikabilan</strong> i filtrira članke po temi + framing tipu.
             </Note>
           </Section>
 
@@ -228,6 +229,9 @@ export default function Methodology() {
               Mapiranje koristi <strong>AI</strong> (značenje, kontekst), a ne prosto poklapanje ključnih reči — pa hvata narativ i kad nije eksplicitan. Jedan članak može nositi više narativa.
             </Note>
             <p><strong>Predloženi narativi se klasterišu semantički</strong> (embedding + kosinusna udaljenost): umesto da se isti koncept formulisan na 50 načina pojavi kao 50 zasebnih predloga, srodne formulacije se spajaju u jedan klaster. Predlog postaje vidljiv istraživaču tek kada klaster obuhvati više nezavisnih članaka — čime se izbegava šum.</p>
+            <Note kind="info">
+              Kad istraživač <strong>odobri klaster</strong>, svi članci koji su inicirali taj predlog automatski se upisuju u <code>article_narratives</code> (backfill). Narativ odmah pokazuje tačan broj i sadržaj izvornih članaka bez potrebe za ponovnom analizom.
+            </Note>
             <p><strong>Reverzibilnost i trag odluka.</strong> Svaka istraživačka odluka (prihvatanje/odbijanje narativa, framinga ili teme, validacija, izmena entiteta) upisuje se u <em>Istraživački log</em> sa starim i novim statusom. Odluke o predlozima i validacijama su <strong>jednoklik-reverzibilne</strong> — vraćaju stavku u prethodno stanje; izmene entiteta se ispravljaju ponovnim editovanjem. Time je ceo proces ljudske kuracije transparentan i poništiv.</p>
           </Section>
 
@@ -236,7 +240,7 @@ export default function Methodology() {
             <div className="space-y-2">
               <Defn term="Nivo 1 — Copy-paste (semantički)">
                 Visoka tekstualna sličnost preko <strong>pgvector cosine</strong> nad lokalnim embeddingima (ne samo poklapanje naslova).
-                Prag <code>0.85</code>; alert na <code>0.92</code> između različitih vlasničkih grupa; prozor <code>48h</code>. Hvata parafrazu i agencijski preuzet tekst.
+                Prag <code>0.85</code>; alert na <code>0.92</code> između različitih vlasničkih grupa; prozor <code>48h</code>. Hvata parafrazu i agencijski preuzet tekst. Grupe se formiraju <strong>Union-Find algoritmom</strong> — prikazuju se svi mediji unutar grupe (bez ograničenja broja), što omogućava uvid u pun doseg koordinisanog sadržaja.
               </Defn>
               <Defn term="Nivo 2 — Framing koordinacija">
                 Različiti tekstovi, ista tema + isti okvir, ≥3 izvora u 24h. Indikator usklađenog uređivačkog pristupa bez deljenja teksta. Prag skora <code>0.70</code>.
@@ -275,7 +279,7 @@ export default function Methodology() {
             <p>Prati <strong>ko je prvi objavio</strong> temu ili narativ i kako se širio kroz medijski prostor (broj izvora, vreme širenja).</p>
             <div className="space-y-2">
               <Defn term="Origin tema (detect_origin)">Noćni task koji identifikuje koji izvor je prvi objavio određenu temu u zadatom prozoru. Prikazuje se na stranici svakog članka kao „Poreklo priče — ko je objavio prvi" (hronološki timeline s numerisanim pozicijama, prvi izvor istaknuto).</Defn>
-              <Defn term="Origin narativa (detect_narrative_origin)">Novi noćni task koji prati kojim redosledom je svaki <strong>validovani narativ</strong> prošao kroz izvore. Čuva se u tabeli <code>narrative_origin_tracking</code>; dostupno na stranici Narativi → dropdown izaberi narativ → panel porekla. Zahteva ≥2 izvora u 14-dnevnom prozoru.</Defn>
+              <Defn term="Origin narativa (detect_narrative_origin)">Noćni task koji prati kojim redosledom je svaki <strong>validovani narativ</strong> prošao kroz izvore. Čuva se u tabeli <code>narrative_origin_tracking</code>; dostupno na stranici Narativi → dropdown izaberi narativ → panel porekla. Zahteva ≥2 izvora u 14-dnevnom prozoru. Ako preračunati podaci još nisu dostupni (task još nije pokrenuo), endpoint automatski računa poreklo <strong>uživo iz <code>article_narratives</code></strong> — u tom slučaju <code>computed_at</code> je NULL i UI prikazuje napomenu.</Defn>
             </div>
             <Note kind="info">
               Svi aktivni izvori (uključujući RTS i Tanjug) imaju tačne timestamps od juna 2026. — RTS putem RSS feed-a, Tanjug putem <code>article:published_time</code> meta taga. Ako je <code>published_at</code> nepoznat (NULL za starije arhivske članke), redosled unutar dana se <strong>ne tvrdi</strong> i UI to eksplicitno označava.
@@ -303,7 +307,7 @@ export default function Methodology() {
               <strong>Propaganda detekcija je eksperimentalna</strong> — model detektuje površinski/tekstualne signale, ne intenciju autora. Lažno pozitivni su mogući. Interpretacija nalaza ostaje isključivo na istraživaču. Korelacija sa izvorom ≠ dokaz koordinirane propagandne kampanje.
             </Note>
             <p className="text-xs" style={{ color: C.muted }}>Napomena: raniji „narod vs. elite" (populistički meta-framing) je uklonjen iz analize jer je bio nedovoljno precizan.</p>
-            <p><strong>Akteri kao ulaz u korpus</strong> — klikom na aktera (ili na polaritet pozitivno/neutralno/negativno) otvara se filtrirana lista članaka u kojima je taj akter tako prikazan, čime se nalaz uvek može vratiti na izvorni tekst.</p>
+            <p><strong>Akteri kao ulaz u korpus</strong> — klikom na aktera (ili na polaritet pozitivno/neutralno/negativno) otvara se filtrirana lista članaka u kojima je taj akter tako prikazan. Svaka <strong>propagandna tehnika je klikabilna</strong> → filtrira članke po toj tehnici (<code>/articles?propaganda_technique=X</code>), čime se svaki nalaz može direktno verifikovati na izvornom tekstu.</p>
           </Section>
 
           <Section id="kalibracija" icon={RefreshCw} title="13. Kalibracija (RLHF)">

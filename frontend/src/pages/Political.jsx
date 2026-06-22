@@ -357,7 +357,10 @@ export default function Political() {
               <h3 className="text-xs font-medium mb-3" style={{ color: 'var(--text-secondary)' }}>Po tehnici</h3>
               <div className="space-y-2">
                 {byTechnique.map(t => (
-                  <div key={t.technique} className="flex items-center gap-3">
+                  <button key={t.technique}
+                    onClick={() => navigate(`/articles?propaganda_technique=${encodeURIComponent(t.technique)}`)}
+                    className="flex items-center gap-3 w-full text-left rounded hover:bg-white/[0.03] px-1 -mx-1 transition-colors"
+                    title="Prikaži članke sa ovom tehnikom">
                     <span className="text-xs w-40 truncate" style={{ color: 'var(--text-secondary)' }}>
                       {PROPAGANDA_LABELS[t.technique] || t.technique}
                     </span>
@@ -365,7 +368,7 @@ export default function Political() {
                       <div className="h-full rounded-full" style={{ width: `${(t.count / maxTech) * 100}%`, background: '#ef4444' }} />
                     </div>
                     <span className="text-xs tabular-nums w-8 text-right" style={{ color: 'var(--text-muted)' }}>{t.count}</span>
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>

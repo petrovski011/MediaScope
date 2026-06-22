@@ -19,24 +19,40 @@ async def list_anomalies(
     date_from: Optional[str] = Query(default=None),
     date_to: Optional[str] = Query(default=None),
     source_ids: Optional[str] = Query(default=None),
-    limit: int = Query(default=100, ge=1, le=500),
+    sort_by: Optional[str] = Query(default="date"),
+    sort_dir: Optional[str] = Query(default="desc"),
+    limit: int = Query(default=25, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    q = select(Anomaly).order_by(desc(Anomaly.date), desc(Anomaly.deviation_pct))
+    from sqlalchemy import func, asc
+
+    _SORTABLE = {"date": Anomaly.date, "deviation_pct": Anomaly.deviation_pct, "anomaly_type": Anomaly.anomaly_type}
+    sort_col = _SORTABLE.get(sort_by, Anomaly.date)
+    order_fn = asc if sort_dir == "asc" else desc
+
+    base = select(Anomaly)
     if anomaly_type:
-        q = q.where(Anomaly.anomaly_type == anomaly_type)
+        base = base.where(Anomaly.anomaly_type == anomaly_type)
     if date_from:
-        q = q.where(Anomaly.date >= parse_date(date_from))
+        base = base.where(Anomaly.date >= parse_date(date_from))
     if date_to:
-        q = q.where(Anomaly.date <= parse_date(date_to))
+        base = base.where(Anomaly.date <= parse_date(date_to))
     if source_ids:
         src_list = [s.strip() for s in source_ids.split(",") if s.strip()]
         if src_list:
-            q = q.where(Anomaly.source_id.in_(src_list))
-    q = q.limit(limit)
-    rows = (await db.execute(q)).scalars().all()
+            base = base.where(Anomaly.source_id.in_(src_list))
+
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
+
+    secondary = desc(Anomaly.deviation_pct) if sort_by != "deviation_pct" else desc(Anomaly.date)
+    rows = (await db.execute(
+        base.order_by(order_fn(sort_col), secondary).limit(limit).offset(offset)
+    )).scalars().all()
+
     return {
+        "total": total,
         "anomalies": [
             {
                 "id": a.id,
