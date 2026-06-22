@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Layers, Plus, Check, X, Sparkles, ChevronLeft, ChevronRight, ExternalLink, TrendingUp } from 'lucide-react'
+import { Layers, Plus, Check, X, Sparkles, ChevronLeft, ChevronRight, ExternalLink, TrendingUp, Grid3x3 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import api from '../lib/api'
 import { useAuth } from '../store/auth'
+import { useFilters, toParams } from '../store/filters'
+import MatrixTable from '../components/MatrixTable'
 
 const canManage = (role) => role === 'admin' || role === 'researcher'
 
@@ -287,6 +289,7 @@ export default function Framing() {
   const qc = useQueryClient()
   const navigate = useNavigate()
   const manage = canManage(user?.role)
+  const filters = useFilters()
 
   const { data: typesData } = useQuery({
     queryKey: ['framing-types'],
@@ -295,6 +298,12 @@ export default function Framing() {
   const { data: topicsData } = useQuery({
     queryKey: ['framing-topics'],
     queryFn: () => api.get('/framing/topics').then(r => r.data.topics),
+  })
+
+  const matrixParams = toParams(filters)
+  const { data: matrixData, isLoading: matrixLoading } = useQuery({
+    queryKey: ['framing-matrix', matrixParams.toString()],
+    queryFn: () => api.get(`/framing/matrix?${matrixParams}`).then(r => r.data),
   })
 
   const validate = useMutation({
@@ -366,6 +375,31 @@ export default function Framing() {
           </section>
         ))}
       </div>
+
+      {/* Matrica medij × frejming */}
+      <section className="mt-8 rounded-xl border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
+        <div className="px-4 py-3 border-b flex items-center gap-2" style={{ borderColor: 'var(--border)' }}>
+          <Grid3x3 size={15} style={{ color: 'var(--accent)' }} />
+          <h2 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Matrica medij × frejming</h2>
+          <span className="text-xs ml-auto" style={{ color: 'var(--text-muted)' }}>Klikni ćeliju → filtrirani članci</span>
+        </div>
+        {matrixLoading ? (
+          <div className="px-4 py-8 text-sm text-center" style={{ color: 'var(--text-muted)' }}>Učitavanje…</div>
+        ) : (
+          <MatrixTable
+            data={matrixData?.matrix || []}
+            rowKey="source_id"
+            colKey="framing_name"
+            valKey="cnt"
+            rowLabel="Izvor"
+            emptyMsg="Nema framing podataka za izabrani period/filtar."
+            getCellUrl={item => item
+              ? `/articles?source_ids=${item.source_id}&framing_type_id=${item.framing_id}`
+              : null
+            }
+          />
+        )}
+      </section>
 
       <OriginPanel />
     </div>

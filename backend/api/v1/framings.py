@@ -78,6 +78,52 @@ async def list_framing_types(
     }
 
 
+@router.get("/matrix")
+async def framing_matrix(
+    date_from: Optional[str] = Query(default=None),
+    date_to: Optional[str] = Query(default=None),
+    source_ids: Optional[str] = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Matrica medij × frejming: broj članaka po (source_id, framing_name).
+
+    Ćelija = klik → /articles?source_ids=X&framing_type_id=Y.
+    """
+    from api.deps import parse_date
+    params = {}
+    df = ""
+    if date_from:
+        df += " AND a.published_at >= :date_from"; params["date_from"] = parse_date(date_from)
+    if date_to:
+        df += " AND a.published_at <= :date_to"; params["date_to"] = parse_date(date_to)
+    src_ids = [s.strip() for s in source_ids.split(",") if s.strip()] if source_ids else None
+    if src_ids:
+        df += " AND a.source_id = ANY(:source_ids)"; params["source_ids"] = src_ids
+
+    rows = (await db.execute(text(f"""
+        SELECT a.source_id, ft.name AS framing_name, ft.id AS framing_id, COUNT(*) AS cnt
+        FROM article_framings af
+        JOIN articles a ON a.id = af.article_id
+        JOIN framing_types ft ON ft.id = af.framing_type_id
+        WHERE 1=1 {df}
+        GROUP BY a.source_id, ft.name, ft.id
+        ORDER BY cnt DESC
+    """), params)).all()
+
+    return {
+        "matrix": [
+            {
+                "source_id": r.source_id,
+                "framing_name": r.framing_name,
+                "framing_id": r.framing_id,
+                "cnt": r.cnt,
+            }
+            for r in rows
+        ]
+    }
+
+
 @router.get("/evolution")
 async def framing_evolution(
     topic: str = Query(...),
