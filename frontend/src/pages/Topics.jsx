@@ -180,50 +180,83 @@ function CoverageDetail({ topic, filterParams }) {
   if (!cov) return <div className="px-4 py-6 text-sm" style={{ color: 'var(--text-muted)' }}>Učitavanje…</div>
 
   const maxFraming = Math.max(1, ...(fr?.framing_split || []).map(f => f.count))
-  const silent = cov.by_source.filter(s => s.article_count === 0)
-  const covering = cov.by_source.filter(s => s.article_count > 0)
+  const omission = cov.by_source.filter(s => s.silence_category === 'OMISSION')
+  const minimization = cov.by_source.filter(s => s.silence_category === 'MINIMIZATION')
+  const trivialization = cov.by_source.filter(s => s.silence_category === 'TRIVIALIZATION')
+  const covering = cov.by_source.filter(s => s.silence_category === 'COVERAGE' || (!s.silence_category && s.article_count > 0))
+  const hasSilence = omission.length + minimization.length + trivialization.length > 0
+
+  const SILENCE_LABELS = {
+    OMISSION:      { label: 'Izostavljanje', color: '#ef4444', desc: '0 članaka — tema potpuno odsutna' },
+    MINIMIZATION:  { label: 'Minimizacija',  color: '#f59e0b', desc: 'Daleko ispod proseka pokrivenosti' },
+    TRIVIALIZATION:{ label: 'Trivijalizacija', color: '#8b5cf6', desc: 'Pokriva ali dominiraju umanjujući okviri' },
+    COVERAGE:      { label: 'Pokrivenost',   color: '#22c55e', desc: 'Normalna ili nadprosečna pokrivenost' },
+  }
+
+  function silenceBadge(cat) {
+    const cfg = SILENCE_LABELS[cat] || SILENCE_LABELS.COVERAGE
+    return (
+      <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: cfg.color + '22', color: cfg.color, fontWeight: 500 }}>
+        {cfg.label}
+      </span>
+    )
+  }
 
   return (
     <div className="space-y-4">
-      {/* Silence callout */}
-      {cov.sources_silent.length > 0 && (
-        <div className="rounded-xl border p-4" style={{ background: 'var(--bg-surface)', borderColor: '#f59e0b55' }}>
-          <div className="flex items-center gap-2 mb-2">
+      {/* Silence spektar */}
+      {hasSilence && (
+        <div className="rounded-xl border p-4 space-y-3" style={{ background: 'var(--bg-surface)', borderColor: '#f59e0b55' }}>
+          <div className="flex items-center gap-2">
             <EyeOff size={14} style={{ color: '#f59e0b' }} />
             <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-              Tiho na temi „{tlabel(topic)}" — {cov.sources_silent.length} izvora
+              Silence strategije na temi „{tlabel(topic)}"
             </h3>
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {silent.map(s => (
-              <span key={s.source_id} className="text-xs px-2 py-0.5 rounded font-mono"
-                style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }} title={s.owner_group || ''}>
-                {s.source_id}
-              </span>
-            ))}
-          </div>
-          <p className="text-xs mt-2 italic" style={{ color: 'var(--text-muted)' }}>{cov.silence_note}</p>
+          {[
+            { key: 'OMISSION', group: omission },
+            { key: 'MINIMIZATION', group: minimization },
+            { key: 'TRIVIALIZATION', group: trivialization },
+          ].filter(g => g.group.length > 0).map(({ key, group }) => (
+            <div key={key}>
+              <div className="flex items-center gap-2 mb-1">
+                {silenceBadge(key)}
+                <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{SILENCE_LABELS[key].desc}</span>
+                <span className="text-xs ml-auto" style={{ color: 'var(--text-muted)' }}>{group.length} izvor{group.length !== 1 ? 'a' : ''}</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {group.map(s => (
+                  <span key={s.source_id} className="text-xs px-2 py-0.5 rounded font-mono"
+                    style={{ background: 'var(--bg-elevated)', color: 'var(--text-muted)' }} title={s.owner_group || ''}>
+                    {s.source_id}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+          <p className="text-xs italic" style={{ color: 'var(--text-muted)' }}>{cov.silence_note}</p>
         </div>
       )}
 
       {/* Coverage by source */}
       <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
         <div className="px-4 py-2.5 border-b text-xs font-semibold uppercase tracking-wider" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
-          Pokrivenost po izvoru ({covering.length} aktivnih)
+          Pokrivenost po izvoru — prosek {cov.avg_coverage_per_source ?? '?'} čl./izvor
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead style={{ background: 'var(--bg-elevated)' }}>
-              <tr>{['Izvor', 'Vlasnik', 'Članaka', 'Pol. skor', 'Senzac.'].map(h => (
+              <tr>{['Izvor', 'Vlasnik', 'Članaka', 'Silence', 'Pol. skor', 'Senzac.'].map(h => (
                 <th key={h} className="px-4 py-2 text-left text-xs font-medium uppercase tracking-wide" style={{ color: 'var(--text-muted)' }}>{h}</th>
               ))}</tr>
             </thead>
             <tbody>
-              {covering.map(s => (
+              {cov.by_source.filter(s => s.article_count > 0 || s.silence_category).map(s => (
                 <tr key={s.source_id} className="border-b" style={{ borderColor: 'var(--border)' }}>
                   <td className="px-4 py-2 font-mono text-xs" style={{ color: 'var(--text-primary)' }}>{s.source_id}</td>
                   <td className="px-4 py-2 text-xs" style={{ color: 'var(--text-muted)' }}>{s.owner_group || '—'}</td>
                   <td className="px-4 py-2 text-xs tabular-nums" style={{ color: 'var(--text-secondary)' }}>{s.article_count}</td>
+                  <td className="px-4 py-2">{s.silence_category ? silenceBadge(s.silence_category) : '—'}</td>
                   <td className="px-4 py-2 text-xs tabular-nums" style={{ color: s.avg_political > 0.2 ? '#60a5fa' : s.avg_political < -0.2 ? '#f87171' : 'var(--text-muted)' }}>
                     {s.avg_political ?? '—'}
                   </td>

@@ -28,14 +28,38 @@ def same_owner_group(source_ids: list, og_map: dict) -> bool:
     return len(groups) == 1 and len(source_ids) > 1
 
 
+# Framing okviri koji trivijalizuju/umanjuju temu (po tipu diskursa)
+_DOWNPLAYING_FRAMES = {
+    "huliganstvo_frame", "strani_projekat_frame", "marginalizacija_frame",
+    "morality_frame",  # u kontekstu odbacivanja legitimnosti protesta/zahteva
+}
+
+
+def _silence_category(count: int, avg_coverage: float, downplaying_ratio: float) -> str:
+    """Kategorija tišine po izvoru za datu temu.
+
+    OMISSION     — 0 clanaka (potpuno odsustvo teme)
+    MINIMIZATION — pokriva ali daleko ispod proseka (< 30%)
+    TRIVIALIZATION — pokriva ali dominira trivijalizujucim okvirima (> 50%)
+    COVERAGE     — normalna ili nadprosecna pokrivenost
+    """
+    if count == 0:
+        return "OMISSION"
+    if avg_coverage > 0 and count < avg_coverage * 0.3:
+        return "MINIMIZATION"
+    if downplaying_ratio > 0.5:
+        return "TRIVIALIZATION"
+    return "COVERAGE"
+
+
 async def topic_coverage(
     db: AsyncSession, topic: str, date_from: Optional[str], date_to: Optional[str],
     silence_min_total: int = 5, silence_min_sources: int = 3,
 ) -> dict:
-    """Coverage matrica po izvoru za temu + silence analiza.
+    """Coverage matrica po izvoru za temu + silence analiza sa spektrom strategija.
 
-    Izvor je 'tih' ako ima 0 clanaka na temi dok tema ima >= silence_min_total clanaka
-    kroz >= silence_min_sources drugih izvora.
+    Silence kategorije: OMISSION (0 clanaka), MINIMIZATION (daleko ispod proseka),
+    TRIVIALIZATION (pokriva ali trivijalizujucim framingom), COVERAGE (normalna pokrivenost).
     """
     params = {"topic": topic}
     df = ""
@@ -44,7 +68,6 @@ async def topic_coverage(
     if date_to:
         df += " AND a.published_at <= :date_to"; params["date_to"] = parse_date(date_to)
 
-    # po izvoru: broj clanaka na temi + prosek politickog skora + dominantni framing
     per_source = (await db.execute(text(f"""
         SELECT s.source_id, s.name, s.owner_group,
                COUNT(a.id) AS article_count,
@@ -58,6 +81,22 @@ async def topic_coverage(
         ORDER BY article_count DESC, s.source_id
     """), params)).all()
 
+    # Framing po izvoru — za detekciju trivijalizacije
+    framing_rows = (await db.execute(text(f"""
+        SELECT a.source_id, ft.name AS framing, COUNT(*) AS cnt
+        FROM article_framings af
+        JOIN framing_types ft ON ft.id = af.framing_type_id
+        JOIN articles a ON a.id = af.article_id
+        JOIN article_analysis aa ON aa.article_id = a.id AND aa.primary_topic = :topic
+        WHERE 1=1 {df}
+        GROUP BY a.source_id, ft.name
+    """), params)).all()
+
+    src_framing: dict = {}
+    for r in framing_rows:
+        src_framing.setdefault(r.source_id, {}).setdefault(r.framing, 0)
+        src_framing[r.source_id][r.framing] += r.cnt
+
     rows = [{
         "source_id": r.source_id, "name": r.name, "owner_group": r.owner_group,
         "article_count": r.article_count or 0,
@@ -67,6 +106,17 @@ async def topic_coverage(
 
     total = sum(r["article_count"] for r in rows)
     covering = [r for r in rows if r["article_count"] > 0]
+    avg_coverage = total / len(covering) if covering else 0
+
+    for r in rows:
+        sid = r["source_id"]
+        framings = src_framing.get(sid, {})
+        total_f = sum(framings.values())
+        downplaying = sum(v for k, v in framings.items() if k in _DOWNPLAYING_FRAMES)
+        ratio = downplaying / total_f if total_f > 0 else 0.0
+        r["silence_category"] = _silence_category(r["article_count"], avg_coverage, ratio)
+        r["downplaying_frame_ratio"] = round(ratio, 3) if total_f > 0 else None
+
     silent = []
     if total >= silence_min_total and len(covering) >= silence_min_sources:
         silent = [r for r in rows if r["article_count"] == 0]
@@ -74,6 +124,7 @@ async def topic_coverage(
     return {
         "topic": topic,
         "total_articles": total,
+        "avg_coverage_per_source": round(avg_coverage, 1),
         "sources_covering": [r["source_id"] for r in covering],
         "sources_silent": [r["source_id"] for r in silent],
         "by_source": rows,

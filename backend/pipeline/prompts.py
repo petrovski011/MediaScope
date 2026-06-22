@@ -166,7 +166,10 @@ Identifikuj SVE znacajne entitete (max 15):
 Normalizuj varijante istog entiteta (Vucic = Aleksandar Vucic = predsednik Srbije -> "Aleksandar Vucic").
 Ne ukljucuj genericne pojmove ("vlada", "novinari") - samo konkretne aktere.
 Za svaki entitet oznaci is_political_actor (true ako je politicki akter: funkcioner, stranka,
-politicar, drzavna institucija, politicki relevantna licnost; inace false).
+politicar, drzavna institucija, politicki relevantna organizacija; inace false).
+Institucije su UVEK is_political_actor: true — npr. Vlada Srbije, MUP, BIA, REM, Skupstina,
+RTS, Predsednistvo, RATEL, tuzilastvo, sudovi kad su akteri politickih odluka.
+Genericne grupe NE ukljucuj — samo konkretne i identificirane aktere.
 Za svaki entitet proceni SENTIMENT pominjanja (-1.0 negativno, 0.0 neutralno, +1.0 pozitivno):
 Kako je konkretno ovaj entitet prikazan u tekstu — kritikovan, podrzan, neutralno opisan?
 Ovo je odvojeno od opšteg sentimenta clanka.
@@ -184,11 +187,28 @@ Ako ne odgovara nijednoj, predlozi novu kao "NOVA_TEMA: NAZIV".
 Proceni na tri ose:
 
 1. POLITICKA OSA (-1.0 do +1.0):
-   -1.0 = izrazito opoziciono, 0.0 = neutralno, +1.0 = izrazito pro-vladino
+   -1.0 = izrazito opoziciono, 0.0 = neutralno/faktografski, +1.0 = izrazito pro-vladino
    Ovo je objektivna mera stava clanka prema vladajucoj strukturi (SNS/Vucic).
+   VAZNO: uzmi u obzir i IMPLICITNO pozicioniranje —
+   - Tekst koji velica vladine projekte (Expo, infrastruktura, ekonomski "razvoj", "Srbija napreduje"),
+     prenosi vladine izjave bez kritickog konteksta, ili precutkuje kritiku vlasti → pozitivan skor
+     cak i kada eksplicitno ne pominje Vucica, SNS ili vladine funkcionere.
+   - Tekst koji opisuje vlast kriticno bez imenovanja ("vlast", "rezim", "oni gore") → negativan skor.
+   - Neutralan izvestaj bez stava → 0.0.
 
-2. VREDNOSNA OSA (-1.0 do +1.0):
-   -1.0 = izrazito progresivno, 0.0 = neutralno, +1.0 = izrazito konzervativno
+2. VREDNOSNA OSA (-1.0 do +1.0) — srpski sociokulturni spektar:
+   -1.0 = izrazito progresivno (levo):
+     podrska LGBT+ pravima i rodnoj ravnopravnosti; sekularizam i razdvajanje crkve i drzave;
+     pragmatican pristup Kosovu (dijalog, kompromis, evropski put kao vrednost po sebi);
+     pro-EU vrednosti, demokratske norme, vladavina prava; manjinska i nacionalna prava;
+     anti-nacionalizam, kosmopolitske vrednosti; feminizam i rodna perspektiva.
+   +1.0 = izrazito konzervativno (desno):
+     tradicionalne porodicne vrednosti (brak kao zajednica muza i zene, natalitetna politika);
+     srpski nacionalizam i etnicka homogenost kao norma; pravoslavlje kao identitetski temelj;
+     Kosovo kao neodvojivi deo Srbije bez kompromisa o statusu; skepticizam ili neprijateljstvo
+     prema EU/NATO/Zapadu; pro-ruska kulturna ili politicka orijentacija; konzervativni socijalni
+     stavovi (anti-gender, protivljenje seksualnoj slobodi, ocuvanje "nasih vrednosti").
+   Ocenjuj iskljucivo na osnovu vrednosnih signala u tekstu, ne politicke privrzenosti.
 
 3. SENZACIONALIZAM (0.0 do 1.0):
    0.0 = potpuno faktografski, 1.0 = izrazito senzacionalisticki
