@@ -365,6 +365,14 @@ async def approve_narrative_proposal(
     log_action(db, user=current_user, action_type="approve", entity_type="narrative_cluster",
                entity_id=proposal_id, old_status="pending", new_status="accepted")
     await db.commit()
+
+    # Retroaktivni embedding-based backfill za istorijske clanke (async, ne blokira response)
+    try:
+        from pipeline.tasks import backfill_narrative_articles
+        backfill_narrative_articles.delay(narrative_id)
+    except Exception:
+        pass  # task nije kritican, ne blokiraj approve
+
     return {"ok": True, "narrative_id": narrative_id, "backfilled": len(proposals_for_backfill)}
 
 

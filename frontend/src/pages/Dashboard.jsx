@@ -51,62 +51,85 @@ function MorningSummary() {
   })
   const { data: history } = useQuery({
     queryKey: ['summary-history'],
-    queryFn: () => api.get('/summary/history?limit=30').then(r => r.data.summaries),
+    queryFn: () => api.get('/summary/history?limit=90').then(r => r.data.summaries),
     retry: false,
   })
 
-  if (isLoading || !data?.narrative) return null
-  const n = data.narrative
   const summaries = history || []
+  const availableDates = new Set(summaries.map(s => s.date))
+  const minDate = summaries.length ? summaries[summaries.length - 1].date : undefined
+  const maxDate = summaries.length ? summaries[0].date : undefined
+
+  if (isLoading && !selectedDate) return null
+  if (!isLoading && !data?.narrative && !selectedDate) return null
+
+  const n = data?.narrative
 
   return (
     <div className="rounded-xl border" style={{ background: 'var(--bg-surface)', borderColor: 'var(--border)' }}>
-      <div className="px-4 py-3 border-b flex items-center gap-2" style={{ borderColor: 'var(--border)' }}>
+      <div className="px-4 py-3 border-b flex items-center gap-2 flex-wrap" style={{ borderColor: 'var(--border)' }}>
         <Sun size={14} style={{ color: '#f59e0b' }} />
         <h2 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-          Dnevni pregled — {data.date}
+          Dnevni pregled{data?.date ? ` — ${data.date}` : ''}
         </h2>
-        {summaries.length > 1 && (
-          <select value={selectedDate || ''} onChange={e => setSelectedDate(e.target.value || null)}
-            className="ml-auto text-xs px-2 py-1 rounded border outline-none"
-            style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border)', color: 'var(--text-secondary)' }}>
-            <option value="">Najnoviji</option>
-            {summaries.map(s => (
-              <option key={s.date} value={s.date}>{s.date}{s.headline ? ` — ${s.headline.slice(0, 40)}` : ''}</option>
-            ))}
-          </select>
-        )}
-        {summaries.length <= 1 && <span className="text-xs ml-auto" style={{ color: 'var(--text-muted)' }}>AI generisano</span>}
+        <div className="ml-auto flex items-center gap-2">
+          {selectedDate && (
+            <button onClick={() => setSelectedDate(null)}
+              className="text-xs px-2 py-1 rounded border transition-colors"
+              style={{ borderColor: 'var(--border)', color: 'var(--accent)', background: 'var(--bg-elevated)' }}>
+              Najnoviji
+            </button>
+          )}
+          {summaries.length > 0 && (
+            <input type="date"
+              value={selectedDate || ''}
+              min={minDate} max={maxDate}
+              onChange={e => setSelectedDate(e.target.value || null)}
+              className="text-xs px-2 py-1 rounded border outline-none"
+              style={{ background: 'var(--bg-elevated)', borderColor: 'var(--border)', color: 'var(--text-secondary)' }} />
+          )}
+          {summaries.length === 0 && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>AI generisano</span>}
+        </div>
       </div>
       <div className="p-4 space-y-3">
-        {n.headline && (
-          <div className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>{n.headline}</div>
-        )}
-        {n.overview && (
-          <p className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{n.overview}</p>
-        )}
-        {n.key_themes?.length > 0 && (
-          <div>
-            <div className="text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>Ključne teme</div>
-            <ul className="space-y-1">
-              {n.key_themes.map((t, i) => (
-                <li key={i} className="text-sm flex items-start gap-2">
-                  <span className="mt-1.5 w-1 h-1 rounded-full shrink-0" style={{ background: 'var(--text-muted)' }} />
-                  <span style={{ color: 'var(--text-secondary)' }}>{t}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-        {n.coordination_note && (
-          <div className="rounded-lg p-3 text-xs" style={{ background: 'rgba(245,158,11,0.08)', color: '#fbbf24' }}>
-            ⚠ {n.coordination_note}
-          </div>
-        )}
-        {n.editorial_note && (
-          <div className="text-xs pt-2 border-t" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
-            Napomena: {n.editorial_note}
-          </div>
+        {isLoading ? (
+          <p className="text-sm" style={{ color: 'var(--text-muted)' }}>Učitavanje…</p>
+        ) : !n ? (
+          <p className="text-sm" style={{ color: 'var(--text-muted)' }}>
+            Nema sačuvanog pregleda za {selectedDate}. Pregledi se generišu automatski svako jutro u 07:00.
+          </p>
+        ) : (
+          <>
+            {n.headline && (
+              <div className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>{n.headline}</div>
+            )}
+            {n.overview && (
+              <p className="text-sm leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{n.overview}</p>
+            )}
+            {n.key_themes?.length > 0 && (
+              <div>
+                <div className="text-xs font-medium mb-2" style={{ color: 'var(--text-muted)' }}>Ključne teme</div>
+                <ul className="space-y-1">
+                  {n.key_themes.map((t, i) => (
+                    <li key={i} className="text-sm flex items-start gap-2">
+                      <span className="mt-1.5 w-1 h-1 rounded-full shrink-0" style={{ background: 'var(--text-muted)' }} />
+                      <span style={{ color: 'var(--text-secondary)' }}>{t}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {n.coordination_note && (
+              <div className="rounded-lg p-3 text-xs" style={{ background: 'rgba(245,158,11,0.08)', color: '#fbbf24' }}>
+                ⚠ {n.coordination_note}
+              </div>
+            )}
+            {n.editorial_note && (
+              <div className="text-xs pt-2 border-t" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)' }}>
+                Napomena: {n.editorial_note}
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>

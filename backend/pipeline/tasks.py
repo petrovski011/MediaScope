@@ -498,6 +498,83 @@ def consolidate_narrative_proposals(cosine_threshold: float = 0.15, batch_size: 
         conn.close()
 
 
+@celery.task(name="pipeline.tasks.backfill_narrative_articles", bind=True, max_retries=2)
+def backfill_narrative_articles(self, narrative_id: int, window_days: int = 90, threshold: float = 0.28):
+    """Retroaktivno mapira istorijske clanke na novoodobreni narativ koristeći embedding sličnost.
+
+    Koristi centroid klastera kao referentni vektor — pronalazi sve clanke
+    u poslednjih window_days dana sa embeddinzima bliskim tom centroidu
+    (cosine_distance < threshold) i upisuje ih u article_narratives.
+    Ne zahteva AI pozive — brz, deterministički backfill.
+
+    threshold=0.28 odgovara cosine sličnosti ≥ 0.72 — konzervativan prag.
+    """
+    import psycopg2
+
+    logger.info("backfill_narrative_articles: narrative_id=%s, window=%sd, thr=%s", narrative_id, window_days, threshold)
+
+    conn = psycopg2.connect(PG_DSN)
+    conn.autocommit = False
+    cur = conn.cursor()
+
+    try:
+        # Proveri da narativ postoji i uzmi centroid od povezanog klastera
+        cur.execute("""
+            SELECT nc.centroid_embedding
+            FROM narratives n
+            JOIN narrative_clusters nc ON nc.accepted_narrative_id = n.id
+            WHERE n.id = %s AND n.is_active = TRUE AND n.is_validated = TRUE
+            ORDER BY nc.id DESC
+            LIMIT 1
+        """, (narrative_id,))
+        row = cur.fetchone()
+        if not row or row[0] is None:
+            logger.warning("backfill_narrative_articles: nema centroida za narrative_id=%s", narrative_id)
+            return {"status": "skipped", "reason": "no_centroid"}
+
+        centroid = row[0]  # pgvector string "[0.1, 0.2, ...]"
+
+        # Pronađi clanke sa embeddingima koji su blizu centroidu,
+        # koji nisu već mapirati na ovaj narativ
+        cur.execute("""
+            SELECT e.article_id,
+                   1.0 - (e.embedding <=> %s::vector) AS similarity
+            FROM article_embeddings e
+            JOIN articles a ON a.id = e.article_id
+            WHERE a.published_at >= NOW() - INTERVAL '%s days'
+              AND NOT EXISTS (
+                  SELECT 1 FROM article_narratives an
+                  WHERE an.article_id = e.article_id AND an.narrative_id = %s
+              )
+              AND e.embedding <=> %s::vector < %s
+            ORDER BY e.embedding <=> %s::vector
+            LIMIT 500
+        """, (centroid, window_days, narrative_id, centroid, threshold, centroid))
+        candidates = cur.fetchall()
+
+        inserted = 0
+        for article_id, similarity in candidates:
+            cur.execute("""
+                INSERT INTO article_narratives (article_id, narrative_id, confidence, supporting_text)
+                VALUES (%s, %s, %s, NULL)
+                ON CONFLICT (article_id, narrative_id) DO NOTHING
+            """, (article_id, narrative_id, round(float(similarity), 4)))
+            if cur.rowcount:
+                inserted += 1
+
+        conn.commit()
+        logger.info("backfill_narrative_articles: narrative_id=%s, kandidata=%d, upisano=%d", narrative_id, len(candidates), inserted)
+        return {"status": "ok", "narrative_id": narrative_id, "candidates": len(candidates), "inserted": inserted}
+
+    except Exception as e:
+        conn.rollback()
+        logger.error("backfill_narrative_articles failed: %s", e)
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
 @celery.task(name="pipeline.tasks.detect_copypaste")
 def detect_copypaste():
     """Pravi copy-paste detekcija preko pgvector cosine slicnosti (lokalni embeddingi).

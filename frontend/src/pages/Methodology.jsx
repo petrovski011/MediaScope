@@ -228,9 +228,11 @@ export default function Methodology() {
             <Note kind="warn">
               Mapiranje koristi <strong>AI</strong> (značenje, kontekst), a ne prosto poklapanje ključnih reči — pa hvata narativ i kad nije eksplicitan. Jedan članak može nositi više narativa.
             </Note>
-            <p><strong>Predloženi narativi se klasterišu semantički</strong> (embedding + kosinusna udaljenost): umesto da se isti koncept formulisan na 50 načina pojavi kao 50 zasebnih predloga, srodne formulacije se spajaju u jedan klaster. Predlog postaje vidljiv istraživaču tek kada klaster obuhvati više nezavisnih članaka — čime se izbegava šum.</p>
+            <p><strong>Predloženi narativi se klasterišu semantički</strong> (embedding + kosinusna udaljenost): umesto da se isti koncept formulisan na 50 načina pojavi kao 50 zasebnih predloga, srodne formulacije se spajaju u jedan klaster. Predlog postaje vidljiv istraživaču tek kada klaster obuhvati više nezavisnih članaka — čime se izbegava šum. Konsolidacija klastera pokreće se <strong>svakih 6 sati</strong> (task <code>consolidate_narrative_proposals</code>) — što znači da novi predlozi postaju vidljivi tokom dana, bez čekanja do ponoći.</p>
             <Note kind="info">
-              Kad istraživač <strong>odobri klaster</strong>, svi članci koji su inicirali taj predlog automatski se upisuju u <code>article_narratives</code> (backfill). Narativ odmah pokazuje tačan broj i sadržaj izvornih članaka bez potrebe za ponovnom analizom.
+              Kad istraživač <strong>odobri klaster</strong>, sistem radi dvostepeni backfill:
+              (1) <strong>Direktni backfill:</strong> svi članci koji su inicirali taj predlog odmah se upisuju u <code>article_narratives</code> — narativ odmah prikazuje istorijske izvorne članke bez ponovne AI analize.
+              (2) <strong>Retroaktivni embedding backfill:</strong> asinhrono se pregleda poslednjih <strong>90 dana</strong> svih analiziranih članaka — oni čiji embedding ima kosinusnu sličnost ≥ 0.72 sa centroidom klastera dodaju se u narativ (maks. 500 po narativu, bez AI poziva). Time se uhvataju relevantni stariji članci koji prethode prvim predlozima. Task <code>backfill_narrative_articles</code> radi u pozadini i ne blokira odobravanje.
             </Note>
             <p><strong>Reverzibilnost i trag odluka.</strong> Svaka istraživačka odluka (prihvatanje/odbijanje narativa, framinga ili teme, validacija, izmena entiteta) upisuje se u <em>Istraživački log</em> sa starim i novim statusom. Odluke o predlozima i validacijama su <strong>jednoklik-reverzibilne</strong> — vraćaju stavku u prethodno stanje; izmene entiteta se ispravljaju ponovnim editovanjem. Time je ceo proces ljudske kuracije transparentan i poništiv.</p>
           </Section>
@@ -289,7 +291,7 @@ export default function Methodology() {
 
           <Section id="intraday" icon={Sunrise} title="11. Intra-day analiza">
             <p>Distribucija tema i narativa kroz delove dana i dane u nedelji. Prikazuje se raspodela po satu (0–23), danu u nedelji (pon–ned) i heatmap (sat × dan). Cilj: identifikovati <strong>strategiju plasiranja narativa</strong> — da li se određeni narativi pojavljuju konsistentno u istim vremenskim prozorima. Članci bez tačnog <code>published_at</code> (RTS, Tanjug — datum bez vremena) se isključuju. Endpoint <code>/intraday/narratives</code> koristi 30-dnevni prozor po difoultu.</p>
-            <Note kind="meth">Dnevni AI pregled (07:00) uključuje raspodelu narativa po delovima dana (jutro/podne/veče/noć) samo za izvore sa tačnim vremenom — navedeno u sekciji „Narativi po delovima dana".</Note>
+            <Note kind="meth">Dnevni AI pregled (07:00) uključuje raspodelu narativa po delovima dana (jutro/podne/veče/noć) samo za izvore sa tačnim vremenom — navedeno u sekciji „Narativi po delovima dana". Pregled se bira putem <strong>kalendara</strong> (nije dropdown) — dostupna su poslednja 90 dana; ako za izabrani datum nema pregleda, prikazuje se poslednji dostupni.</Note>
           </Section>
 
           <Section id="politicka" icon={Landmark} title="12. Politička analiza i propaganda detekcija">

@@ -354,6 +354,16 @@ async def get_daily_summary(
                 return json.loads(row.summary_text)
             except (ValueError, TypeError):
                 pass
+    # Krajnji fallback: najnoviji dostupni pregled (npr. gap u podacima ili dev okruzenje)
+    if not target_date:
+        row = (await db.execute(_text(
+            "SELECT summary_text FROM daily_summaries ORDER BY date DESC LIMIT 1"
+        ))).first()
+        if row and row.summary_text:
+            try:
+                return json.loads(row.summary_text)
+            except (ValueError, TypeError):
+                pass
     return None
 
 

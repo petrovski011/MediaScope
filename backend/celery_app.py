@@ -52,10 +52,10 @@ celery.conf.beat_schedule = {
         "task": "pipeline.tasks.generate_embeddings",
         "schedule": crontab(minute="*/30"),
     },
-    # Konsolidacija narativnih predloga u semantičke klastere (dnevno 06:20)
+    # Konsolidacija narativnih predloga u semantičke klastere (svakih 6h)
     "consolidate-narratives": {
         "task": "pipeline.tasks.consolidate_narrative_proposals",
-        "schedule": crontab(hour=6, minute=20),
+        "schedule": crontab(hour="*/6", minute=20),
     },
     # Copy-paste koordinacija (pgvector) — nocno, posle obrade batch-a
     "detect-copypaste": {

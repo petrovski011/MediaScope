@@ -593,10 +593,13 @@ function NarrativesPanel() {
 
       <div className="px-4 py-2.5 border-b text-xs leading-relaxed" style={{ borderColor: 'var(--border)', color: 'var(--text-muted)', background: 'var(--bg-elevated)' }}>
         <strong style={{ color: 'var(--text-secondary)' }}>Šta je definicija narativa?</strong>{' '}
-        Narrativ je obrazac koji AI pronalazi u člancima. Ovde definišete katalog narativa koji vas zanima — svaki novi članak se tada automatski mapira <em>samo na odobrene narative</em> iz ovog kataloga.
-        {' '}<strong style={{ color: 'var(--text-secondary)' }}>Tok:</strong>{' '}
-        AI predlaže narative (vidljivi u "Predlozi") → istraživač odobrava ili ručno dodaje → od tog trenutka svaki članak dobija confidence skor + citat za svaki aktivan narrativ.
-        Nevalidovani narativi se ne koriste u analizi.
+        Sistem prati narative kroz dva paralelna toka.{' '}
+        <strong style={{ color: 'var(--text-secondary)' }}>Mapiranje na poznate narative:</strong>{' '}
+        svaki novi članak AI automatski mapira na sve aktivne odobrene narative iz kataloga (confidence + citat).{' '}
+        <strong style={{ color: 'var(--text-secondary)' }}>Detekcija novih obrazaca:</strong>{' '}
+        AI istovremeno identifikuje obrasce koji ne odgovaraju nijednom odobrenom narativu i predlaže ih kao klastere — vidljivo u "Predlozi". Klastere se konsoliduju svakih 6h; predlog postaje vidljiv tek kad isti obrazac potiče iz više nezavisnih članaka.{' '}
+        <strong style={{ color: 'var(--text-secondary)' }}>Odobravanje:</strong>{' '}
+        istraživač odobri klaster → (1) svi članci koji su inicirali predlog odmah se dodaju, (2) pokreće se retroaktivni pregled poslednjih 90 dana po embedding sličnosti (≥ 0.72, bez AI poziva) da se uhvate i stariji relevantni članci. Od tog trenutka narativ raste automatski. Neodobreni predlozi se ne koriste u analizi.
       </div>
 
       {showCreate && (
